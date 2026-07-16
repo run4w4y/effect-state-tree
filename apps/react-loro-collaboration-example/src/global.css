@@ -1,0 +1,30 @@
+:root {
+  color: #15211d;
+  background:
+    radial-gradient(circle at 8% 10%, rgba(255, 132, 103, 0.2), transparent 30%),
+    radial-gradient(circle at 92% 4%, rgba(89, 151, 255, 0.2), transparent 34%),
+    #f2f5ef;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}

@@ -1,0 +1,159 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "targetDefaults": {
+    "build": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "build:js": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "outputs": ["{projectRoot}/dist"],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "vite build --config ../../vite.lib.config.ts",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "build:types": {
+      "cache": true,
+      "dependsOn": [
+        {
+          "projects": "self",
+          "target": "build:js"
+        }
+      ],
+      "inputs": ["production", "^production"],
+      "outputs": ["{projectRoot}/dist"],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "tsc --project tsconfig.build.json && bun ../../tools/fix-declarations.ts dist",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "dev": {
+      "cache": false,
+      "dependsOn": ["^build"]
+    },
+    "dev:server": {
+      "cache": false,
+      "dependsOn": ["^build"]
+    },
+    "format": {
+      "cache": false,
+      "inputs": ["default"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "biome format --write {projectRoot}"
+      }
+    },
+    "format:check": {
+      "cache": true,
+      "inputs": ["default"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "biome format --error-on-warnings {projectRoot}"
+      }
+    },
+    "lint": {
+      "cache": true,
+      "inputs": ["default"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "biome lint --error-on-warnings {projectRoot}"
+      }
+    },
+    "lint:fix": {
+      "cache": false,
+      "inputs": ["default"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "biome lint --write {projectRoot}"
+      }
+    },
+    "typecheck": {
+      "cache": true,
+      "dependsOn": ["^build", "^typecheck"],
+      "inputs": ["default", "^production"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "tsc --pretty --noEmit --project {projectRoot}/tsconfig.json"
+      }
+    },
+    "test:unit": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["default", "^production"],
+      "outputs": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "bun test {projectRoot}/test"
+      }
+    },
+    "test:e2e": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["default", "^production"],
+      "outputs": [
+        "{projectRoot}/playwright-report",
+        "{projectRoot}/test-results"
+      ]
+    },
+    "test:packages": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["default", "^production"],
+      "outputs": []
+    }
+  },
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/**/*",
+      "!{projectRoot}/dist/**/*",
+      "!{projectRoot}/playwright-report/**/*",
+      "!{projectRoot}/test-results/**/*",
+      "sharedGlobals"
+    ],
+    "production": [
+      "default",
+      "!{projectRoot}/test/**/*",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)",
+      "!{projectRoot}/e2e/**/*",
+      "!{projectRoot}/playwright.config.ts"
+    ],
+    "sharedGlobals": [
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/bun.lock",
+      "{workspaceRoot}/nx.json",
+      "{workspaceRoot}/tsconfig.base.json",
+      "{workspaceRoot}/tsconfig.json",
+      "{workspaceRoot}/biome.json",
+      "{workspaceRoot}/vite.lib.config.ts",
+      "{workspaceRoot}/flake.nix",
+      "{workspaceRoot}/flake.lock"
+    ]
+  },
+  "pluginsConfig": {
+    "@nx/js": {
+      "analyzeLockfile": true,
+      "analyzePackageJson": true,
+      "analyzeSourceFiles": false
+    }
+  }
+}

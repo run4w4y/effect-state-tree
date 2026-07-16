@@ -1,0 +1,11 @@
+.direnv/
+.nx/
+node_modules/
+packages/*/dist/
+apps/*/dist/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.DS_Store

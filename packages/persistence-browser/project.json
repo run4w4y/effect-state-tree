@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "@effect-state-tree/persistence-browser",
+  "projectType": "library",
+  "sourceRoot": "packages/persistence-browser/src",
+  "tags": ["scope:effect-state-tree", "type:adapter", "platform:browser"],
+  "targets": {
+    "build": {
+      "executor": "nx:noop",
+      "dependsOn": ["^build", { "projects": "self", "target": "build:types" }]
+    },
+    "build:js": {},
+    "build:types": {},
+    "format": {},
+    "format:check": {},
+    "lint": {},
+    "lint:fix": {},
+    "test:unit": {},
+    "typecheck": {}
+  }
+}

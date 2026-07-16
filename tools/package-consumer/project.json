@@ -1,0 +1,22 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "@effect-state-tree/package-consumer",
+  "projectType": "library",
+  "sourceRoot": "tools/package-consumer",
+  "tags": ["scope:effect-state-tree", "type:tool", "visibility:private"],
+  "targets": {
+    "test:packages": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build", { "projects": "self", "target": "typecheck" }],
+      "options": {
+        "color": true,
+        "command": "node tools/package-smoke.mjs && bun tools/package-consumer/index.ts"
+      }
+    },
+    "format": {},
+    "format:check": {},
+    "lint": {},
+    "lint:fix": {},
+    "typecheck": {}
+  }
+}

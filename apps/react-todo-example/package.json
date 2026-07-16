@@ -1,0 +1,20 @@
+{
+  "name": "@effect-state-tree/react-todo-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.97",
+    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect-state-tree/core": "workspace:*",
+    "@effect-state-tree/draft": "workspace:*",
+    "@effect-state-tree/history": "workspace:*",
+    "@effect-state-tree/react": "workspace:*",
+    "@effect-state-tree/runtime": "workspace:*",
+    "@effect-state-tree/validation": "workspace:*",
+    "@stylexjs/stylex": "0.19.0",
+    "effect": "4.0.0-beta.97",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
+}
