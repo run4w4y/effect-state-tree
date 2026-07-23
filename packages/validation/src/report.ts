@@ -21,6 +21,7 @@ import {
   type SchemaAST,
   SchemaIssue,
   SchemaParser,
+  type Scope,
 } from 'effect'
 import {
   ValidationCodeAnnotation,
@@ -33,24 +34,34 @@ import {
 
 /** Path-indexed leaf projection that retains its original native Schema issue. */
 export interface IndexedValidationIssue {
+  /** Tuple path at which the issue is indexed. */
   readonly path: TreePath
+  /** Original native Effect Schema issue. */
   readonly issue: SchemaIssue.Issue
+  /** Formatted issue message. */
   readonly message: string
+  /** Tree-specific issue severity. */
   readonly severity: ValidationSeverity
+  /** Optional stable machine-readable diagnostic code. */
   readonly code?: string
 }
 
 /** A revision-specific view of native Effect Schema issues. */
 export interface ValidationReport {
+  /** Tree revision for which this report was produced. */
   readonly revision: number
+  /** Schema lifecycle phase interpreted by the report. */
   readonly phase: ValidationPhase
+  /** Indicates that diagnostics correspond to `revision`. */
   readonly status: 'current'
   /** Retains Schema's composite and alternative issue relationships. */
   readonly issue: Option.Option<SchemaIssue.Issue>
+  /** Exact-path index for convenient UI queries. */
   readonly byPath: HashMap.HashMap<
     string,
     ReadonlyArray<IndexedValidationIssue>
   >
+  /** Flattened projection retaining each native issue. */
   readonly issues: ReadonlyArray<IndexedValidationIssue>
 }
 
@@ -258,7 +269,9 @@ export const validateTree = <S extends Schema.Constraint>(
 
 /** Commit-guard failure containing the complete revision-specific report. */
 export interface ValidationRejectedError {
+  /** Discriminant for lifecycle admission rejection. */
   readonly _tag: 'ValidationRejectedError'
+  /** Complete report explaining why the proposal was rejected. */
   readonly report: ValidationReport
 }
 
@@ -281,11 +294,15 @@ export const admissionGuard =
 
 /** Live StoreView of the validation sidecar for committed tree revisions. */
 export interface ValidationController extends StoreView<ValidationReport> {
+  /** Reads the current report synchronously. */
   readonly getReport: () => ValidationReport
+  /** Returns issues indexed at exactly one tuple path. */
   readonly issuesAt: (path: TreePath) => ReadonlyArray<IndexedValidationIssue>
+  /** Returns issues indexed at or below one tuple path. */
   readonly issuesBelow: (
     path: TreePath
   ) => ReadonlyArray<IndexedValidationIssue>
+  /** Stops observing tree commits. */
   readonly dispose: () => void
 }
 
@@ -323,3 +340,13 @@ export const makeValidationController = <S extends Schema.Constraint>(
     dispose: live.dispose,
   }
 }
+
+/** Maintains validation diagnostics for the surrounding Effect Scope. */
+export const makeValidationControllerScoped = <S extends Schema.Constraint>(
+  store: TreeStore<S>,
+  phase?: ValidationPhase
+): Effect.Effect<ValidationController, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => makeValidationController(store, phase)),
+    (validation) => Effect.sync(validation.dispose)
+  )

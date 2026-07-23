@@ -4,6 +4,7 @@ import type { TransactionId } from './types'
 
 /** Service used to allocate commit identifiers at execution time. */
 export interface TransactionIdGenerator {
+  /** Allocates the next commit identifier in the current Effect environment. */
   readonly next: Effect.Effect<TransactionId>
 }
 

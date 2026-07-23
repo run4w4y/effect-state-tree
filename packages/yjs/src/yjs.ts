@@ -43,8 +43,11 @@ type MutationPlan = () => void
 
 /** Document ownership, provenance, and optional text materialization policy. */
 export interface MakeYjsAdapterOptions {
+  /** Yjs document owned externally by the caller. */
   readonly doc: Y.Doc
+  /** Root map name inside the document; defaults to the adapter's standard root. */
   readonly rootName?: string
+  /** Optional stable provenance token for echo suppression. */
   readonly source?: SourceToken
   /** Extra paths that should be materialized as Y.Text in addition to Schema annotations. */
   readonly collaborativeTexts?: Iterable<TreePath>
@@ -57,10 +60,13 @@ export interface YjsAdapter<S extends Schema.Constraint>
     YjsAdapterError,
     S['DecodingServices'] | S['EncodingServices']
   > {
+  /** Yjs document synchronized by the adapter. */
   readonly doc: Y.Doc
+  /** Root Y.Map containing the encoded tree value. */
   readonly root: Y.Map<YjsValue>
   /** Unique per-adapter Yjs transaction origin used for echo suppression. */
   readonly origin: object
+  /** Peer-local native intention undo controller. */
   readonly undo: YjsUndoController
 }
 

@@ -39,8 +39,11 @@ export interface EntityDescriptor<
   EntityType extends string,
   IdKey extends string,
 > {
+  /** Effect Schema defining the referenced entity value. */
   readonly schema: S
+  /** Stable entity namespace stored in Schema annotations. */
   readonly entityType: EntityType
+  /** Property containing the entity's stable ID. */
   readonly idKey: IdKey
 }
 
@@ -66,8 +69,11 @@ export interface TreeRef<
   EntityType extends string,
   IdKey extends string,
 > {
+  /** Stable entity namespace to resolve. */
   readonly entityType: EntityType
+  /** Stable entity ID to resolve. */
   readonly id: EntityId<S, IdKey>
+  /** Private descriptor brand preserving the referenced entity type. */
   readonly [TreeRefTypeId]: EntityDescriptor<S, EntityType, IdKey>
 }
 

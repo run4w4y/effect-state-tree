@@ -7,7 +7,7 @@ const seedTodos: ReadonlyArray<Todo> = [
     id: 'design-context-actions',
     title: 'Move updates into context-backed actions',
     notes:
-      'Every local edit targets the draft store supplied by React context.',
+      'Every local edit is an Effect update resolved against the draft context.',
     priority: 'high',
     completed: true,
   },

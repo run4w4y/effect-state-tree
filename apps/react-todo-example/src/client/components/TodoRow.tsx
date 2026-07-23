@@ -1,8 +1,8 @@
+import { useAtom } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 
 import type { Todo } from '../../shared/todo'
-import { removeTodo, toggleTodo } from '../state/actions'
-import { TodoReact } from '../state/todo-tree'
+import type { TodoAtoms } from '../state/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
 import { Button } from './Button'
@@ -57,14 +57,16 @@ const styles = stylex.create({
 })
 
 export const TodoRow = ({
+  atoms,
   onEdit,
   todo,
 }: {
+  readonly atoms: TodoAtoms
   readonly onEdit: (id: string) => void
   readonly todo: Todo
 }) => {
-  const toggle = TodoReact.useCommand(toggleTodo)
-  const remove = TodoReact.useCommand(removeTodo)
+  const [toggleResult, toggle] = useAtom(atoms.actions.toggle(todo.id))
+  const [removeResult, remove] = useAtom(atoms.actions.remove(todo.id))
 
   return (
     <li {...stylex.props(styles.item)} data-testid={`todo-${todo.id}`}>
@@ -72,8 +74,8 @@ export const TodoRow = ({
         {...stylex.props(styles.checkbox)}
         aria-label={`Mark ${todo.title} ${todo.completed ? 'active' : 'complete'}`}
         checked={todo.completed}
-        disabled={toggle.result.waiting}
-        onChange={() => toggle.run(todo.id)}
+        disabled={toggleResult.waiting}
+        onChange={() => toggle(undefined)}
         type="checkbox"
       />
       <div>
@@ -84,8 +86,8 @@ export const TodoRow = ({
           <p {...stylex.props(styles.notes)}>{todo.notes}</p>
         )}
         <span {...stylex.props(styles.metadata)}>{todo.priority} priority</span>
-        <AsyncFailure result={toggle.result} />
-        <AsyncFailure result={remove.result} />
+        <AsyncFailure result={toggleResult} />
+        <AsyncFailure result={removeResult} />
       </div>
       <div {...stylex.props(styles.actions)}>
         <Button compact onClick={() => onEdit(todo.id)} tone="ghost">
@@ -93,8 +95,8 @@ export const TodoRow = ({
         </Button>
         <Button
           compact
-          disabled={remove.result.waiting}
-          onClick={() => remove.run(todo.id)}
+          disabled={removeResult.waiting}
+          onClick={() => remove(undefined)}
           tone="danger"
         >
           Remove

@@ -7,35 +7,6 @@
       "inputs": ["production", "^production"],
       "outputs": ["{projectRoot}/dist"]
     },
-    "build:js": {
-      "cache": true,
-      "dependsOn": ["^build"],
-      "inputs": ["production", "^production"],
-      "outputs": ["{projectRoot}/dist"],
-      "executor": "nx:run-commands",
-      "options": {
-        "color": true,
-        "command": "vite build --config ../../vite.lib.config.ts",
-        "cwd": "{projectRoot}"
-      }
-    },
-    "build:types": {
-      "cache": true,
-      "dependsOn": [
-        {
-          "projects": "self",
-          "target": "build:js"
-        }
-      ],
-      "inputs": ["production", "^production"],
-      "outputs": ["{projectRoot}/dist"],
-      "executor": "nx:run-commands",
-      "options": {
-        "color": true,
-        "command": "tsc --project tsconfig.build.json && bun ../../tools/fix-declarations.ts dist",
-        "cwd": "{projectRoot}"
-      }
-    },
     "dev": {
       "cache": false,
       "dependsOn": ["^build"]
@@ -114,12 +85,6 @@
         "{projectRoot}/playwright-report",
         "{projectRoot}/test-results"
       ]
-    },
-    "test:packages": {
-      "cache": true,
-      "dependsOn": ["^build"],
-      "inputs": ["default", "^production"],
-      "outputs": []
     }
   },
   "namedInputs": {
@@ -144,7 +109,7 @@
       "{workspaceRoot}/tsconfig.base.json",
       "{workspaceRoot}/tsconfig.json",
       "{workspaceRoot}/biome.json",
-      "{workspaceRoot}/vite.lib.config.ts",
+      "{workspaceRoot}/rslib.config.ts",
       "{workspaceRoot}/flake.nix",
       "{workspaceRoot}/flake.lock"
     ]

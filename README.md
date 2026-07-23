@@ -14,7 +14,7 @@ mobx-keystone, React, or Atom dependency in its core.
 ```ts
 import { entity, makeTreeSpec } from '@effect-state-tree/core'
 import { makeHistory } from '@effect-state-tree/history'
-import { defineTree, makeTreeAction } from '@effect-state-tree/runtime'
+import { defineTree } from '@effect-state-tree/runtime'
 import { Effect, Schema } from 'effect'
 
 const Todo = Schema.Struct({
@@ -31,8 +31,7 @@ const Root = Schema.Struct({
 
 const TodoTree = defineTree('@example/TodoTree', makeTreeSpec(Root))
 
-const addTodo = makeTreeAction(
-  TodoTree,
+const addTodo = TodoTree.update(
   (root, todo: Todo) => {
     root.todos.push(todo)
   },
@@ -55,16 +54,44 @@ const program = Effect.gen(function* () {
 Effect.runPromise(Effect.scoped(program))
 ```
 
+For Atom-powered frontends, derive the reactive surface from the admitted store
+once and hand the resulting atoms to the official Effect binding for the UI
+framework:
+
+```ts
+import { makeTreeAtoms } from '@effect-state-tree/atom'
+
+const store = await Effect.runPromise(
+  TodoTree.make({
+    todos: [],
+  })
+)
+const atoms = makeTreeAtoms(TodoTree, store)
+
+export const todosAtom = atoms.select((root) => root.todos, {
+  paths: [['todos']],
+})
+export const addTodoAtom = atoms.fn(addTodo, { concurrent: true })
+```
+
 Effects own execution, services, failures, interruption, and asynchronous work.
 A committed patch set owns state atomicity. Mutable-looking recipes are temporary
 mutation producers; the canonical value is always an immutable snapshot.
 Fallible pure kernel operations use Effect's native `Result`; live operations
 use typed `Effect` error channels.
 
-Framework command hooks default to `execution: 'switch'`, which interrupts a
-superseded invocation. Use `execution: 'merge'` for discrete operations where
-every invocation must finish. All direct adapters subscribe through the shared
-`StoreView` protocol; only the optional Atom package uses Effect Atom.
+`TreeDefinition.update` is deliberately narrow: it resolves the tree service
+from Effect Context and commits one synchronous mutation recipe. Full actions
+derive from the same definition with `TreeDefinition.action`; they are ordinary
+Effects that may resolve HTTP clients and other services, await asynchronous
+work, and use one or more short tree updates as atomic commit points. Every
+commit inherits the surrounding action ID and name.
+
+`@effect-state-tree/atom` derives stable selector and function atoms from an
+admitted store. Function atoms use Effect Atom's native `AsyncResult`, reset,
+interruption, and concurrency semantics. The official Effect Atom binding for a
+UI framework owns the final component-level integration; this workspace does
+not duplicate those bindings.
 
 Native mutable values such as `Date` and `Map` are not admitted implicitly.
 Register an `AtomicInterpreter` when a domain value has a sound immutable
@@ -104,11 +131,7 @@ bun run graph
 | `@effect-state-tree/yjs` | Y.Map/Y.Array/Y.Text adapter with one Y transaction per commit |
 | `@effect-state-tree/loro` | Loro map/list/movable-list/text adapter with native move support |
 | `@effect-state-tree/devtools` | Commit timeline, patches, snapshots, and programmatic time travel |
-| `@effect-state-tree/atom` | Adapter for Effect v4 `effect/unstable/reactivity` atoms |
-| `@effect-state-tree/react` | Generic `useSyncExternalStore` hooks, typed tree bindings, and Effect commands |
-| `@effect-state-tree/solid` | Owner-scoped selector signals and typed context bindings |
-| `@effect-state-tree/vue` | Scope-managed selector refs and provide/inject bindings |
-| `@effect-state-tree/svelte` | Readable selector stores and typed context bindings |
+| `@effect-state-tree/atom` | StoreView projection, typed tree Atom runtimes, selectors, and Effect function atoms |
 | `@effect-state-tree/foldkit` | Pure Model/Message/update/Command-compatible reducer interpreter |
 
 ## Example applications
@@ -116,10 +139,11 @@ bun run graph
 [`apps/react-todo-example`](./apps/react-todo-example) is a production-built
 todo app with an Effect v4 `HttpApi` server. One long-lived same-Schema draft
 holds every local edit and its patch history; Save performs an optimistic typed
-request and reconciles the server's authoritative response into the original
-tree. It also demonstrates context-resolved actions, stable inline selectors,
-`AsyncResult` command state, Schema diagnostics, StyleX, and Playwright tests
-for conflicts and draft isolation.
+request inside a context-resolved Effect action. The response updates the
+authoritative original and only resets the draft when no newer local edit was
+made while the request was in flight. It also demonstrates stable inline
+selectors, native Atom `AsyncResult` state, Schema diagnostics, StyleX, and
+Playwright tests for conflicts, draft isolation, and request races.
 
 [`apps/react-loro-collaboration-example`](./apps/react-loro-collaboration-example)
 runs one independent peer per browser page against an Effect WebSocket room

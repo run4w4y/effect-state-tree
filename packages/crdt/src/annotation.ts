@@ -1,5 +1,6 @@
 import type { Schema } from 'effect'
 
+/** Effect Schema annotation key used to request native movable-list storage. */
 export const MovableListAnnotationKey =
   '@effect-state-tree/crdt/movable-list' as const
 

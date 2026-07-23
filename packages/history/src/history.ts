@@ -22,33 +22,58 @@ import {
   Effect,
   HashSet,
   type Schema,
+  type Scope,
   Semaphore,
 } from 'effect'
 
+/** Commit tag that excludes a transition from undo and redo history. */
 export const HistorySkipTag = 'history.skip' as const
+/** Commit tag attached to a transition produced by undo. */
 export const HistoryUndoTag = 'history.undo' as const
+/** Commit tag attached to a transition produced by redo. */
 export const HistoryRedoTag = 'history.redo' as const
+/** Prefix used to associate several commits with one history entry. */
 export const HistoryGroupTagPrefix = 'history.group:' as const
+
+const hasAnyTag = (
+  tags: HashSet.HashSet<string>,
+  candidates: Iterable<string>
+): boolean => {
+  for (const candidate of candidates) {
+    if (HashSet.has(tags, candidate)) return true
+  }
+  return false
+}
 
 /** Non-tree state captured and restored with one history entry. */
 export interface AttachedHistoryState<A> {
+  /** Attached value captured before the transition. */
   readonly before: A
+  /** Attached value captured after the transition. */
   readonly after: A
 }
 
 /** Reversible patch/operation batch recorded by the history plugin. */
 export interface HistoryEntry<A = never> {
+  /** Atomic commit identifiers combined into this history entry. */
   readonly transactionIds: ReadonlyArray<string>
+  /** Most recent human-readable label in the entry. */
   readonly label?: string
+  /** Fiber-local group identifier, when commits were grouped. */
   readonly groupId?: string
+  /** Change applied when undoing this entry. */
   readonly undo: ApplyChangeInput
+  /** Change applied when redoing this entry. */
   readonly redo: ApplyChangeInput
+  /** Optional non-tree state restored with the transition. */
   readonly attached?: AttachedHistoryState<A>
 }
 
 /** Immutable undo and redo stacks. */
 export interface HistoryState<A = never> {
+  /** Entries available to undo, oldest first. */
   readonly undo: ReadonlyArray<HistoryEntry<A>>
+  /** Entries available to redo, oldest first. */
   readonly redo: ReadonlyArray<HistoryEntry<A>>
 }
 
@@ -151,8 +176,12 @@ export const recordHistory = <S extends Schema.Constraint, A = never>(
   options: {
     readonly limit?: number
     readonly attached?: AttachedHistoryState<A>
+    readonly baselineTags?: Iterable<string>
   } = {}
 ): HistoryState<A> => {
+  if (hasAnyTag(commit.tags, options.baselineTags ?? [])) {
+    return emptyHistory()
+  }
   if (
     HashSet.has(commit.tags, HistorySkipTag) ||
     commit.change.patches.forward.length === 0
@@ -182,14 +211,20 @@ export const recordHistory = <S extends Schema.Constraint, A = never>(
 
 /** Creates the portable commit reducer used by the live history controller. */
 export const historyReducer = <S extends Schema.Constraint, A = never>(
-  options: { readonly limit?: number } = {}
+  options: {
+    readonly limit?: number
+    readonly baselineTags?: Iterable<string>
+  } = {}
 ): CommitReducer<HistoryState<A>, S> => ({
   initial: emptyHistory(),
   reduce: (state, commit) => [recordHistory(state, commit, options), []],
 })
 
+/** Successful undo or redo request for which the selected stack was empty. */
 export interface NoHistoryChange {
+  /** Discriminant for an empty-stack history operation. */
   readonly _tag: 'NoHistoryChange'
+  /** History stack that contained no entry. */
   readonly reason: 'empty-undo' | 'empty-redo'
 }
 
@@ -201,6 +236,7 @@ export class HistoryRevisionConflict extends Data.TaggedError(
   readonly actual: number
 }> {}
 
+/** Result of undo or redo, including the empty-stack no-op case. */
 export type HistoryActionResult<S extends Schema.Constraint> =
   | NoHistoryChange
   | CommitResult<S>
@@ -208,25 +244,37 @@ export type HistoryActionResult<S extends Schema.Constraint> =
 /** Live history StoreView with serialized undo and redo Effects. */
 export interface HistoryController<S extends Schema.Constraint, A = never>
   extends StoreView<HistoryState<A>> {
+  /** Reads the current undo and redo stacks synchronously. */
   readonly getState: () => HistoryState<A>
+  /** Returns whether an undo entry is currently available. */
   readonly canUndo: () => boolean
+  /** Returns whether a redo entry is currently available. */
   readonly canRedo: () => boolean
+  /** Applies the newest undo entry after verifying its selected revision. */
   readonly undo: Effect.Effect<
     HistoryActionResult<S>,
     TreePatchError | TreeStoreShutdownError | HistoryRevisionConflict
   >
+  /** Applies the newest redo entry after verifying its selected revision. */
   readonly redo: Effect.Effect<
     HistoryActionResult<S>,
     TreePatchError | TreeStoreShutdownError | HistoryRevisionConflict
   >
+  /** Clears both history stacks without changing the tree. */
   readonly clear: () => void
+  /** Stops observing commits and releases controller listeners. */
   readonly dispose: () => void
 }
 
 /** Stack limits and optional attached non-tree state integration. */
 export interface HistoryControllerOptions<A> {
+  /** Maximum number of undo entries retained; unlimited when omitted. */
   readonly limit?: number
+  /** Commit tags that establish a new baseline and clear both stacks. */
+  readonly baselineTags?: Iterable<string>
+  /** Captures non-tree state alongside each recorded transition. */
   readonly captureAttached?: () => A
+  /** Restores attached state when an undo or redo entry is applied. */
   readonly restoreAttached?: (state: A) => void
 }
 
@@ -258,6 +306,9 @@ export const makeHistory = <S extends Schema.Constraint, A = never>(
       return [
         recordHistory(state, commit, {
           ...(options.limit !== undefined ? { limit: options.limit } : {}),
+          ...(options.baselineTags !== undefined
+            ? { baselineTags: options.baselineTags }
+            : {}),
           ...(attached !== undefined ? { attached } : {}),
         }),
         [],
@@ -357,10 +408,21 @@ export const makeHistory = <S extends Schema.Constraint, A = never>(
   }
 }
 
+/** Attaches history for the lifetime of the surrounding Effect Scope. */
+export const makeHistoryScoped = <S extends Schema.Constraint, A = never>(
+  store: TreeStore<S>,
+  options: HistoryControllerOptions<A> = {}
+): Effect.Effect<HistoryController<S, A>, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => makeHistory(store, options)),
+    (history) => Effect.sync(history.dispose)
+  )
+
 let groupSequence = 0
 
 /** Effect service responsible for deterministic history group identifiers. */
 export interface HistoryGroupIdGenerator {
+  /** Allocates the next group identifier in the current Effect environment. */
   readonly next: Effect.Effect<string>
 }
 

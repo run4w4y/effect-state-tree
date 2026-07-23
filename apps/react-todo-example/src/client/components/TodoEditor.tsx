@@ -1,12 +1,10 @@
-import { useStoreView } from '@effect-state-tree/react'
+import { useAtom, useAtomValue } from '@effect/atom-react'
 import { validationIssuesAt } from '@effect-state-tree/validation'
 import * as stylex from '@stylexjs/stylex'
 import { Option, Schema } from 'effect'
 
 import { TodoPriority } from '../../shared/todo'
-import { editTodo } from '../state/actions'
-import { TodoReact } from '../state/todo-tree'
-import type { TodoWorkspace } from '../state/workspace'
+import type { TodoAtoms } from '../state/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
 import { Button } from './Button'
@@ -92,25 +90,19 @@ const styles = stylex.create({
 const decodePriority = Schema.decodeUnknownOption(TodoPriority)
 
 export const TodoEditor = ({
+  atoms,
   id,
   onClose,
-  workspace,
 }: {
+  readonly atoms: TodoAtoms
   readonly id: string
   readonly onClose: () => void
-  readonly workspace: TodoWorkspace
 }) => {
-  const todo = TodoReact.useSelector(
-    (state) => state.document.todos.find((candidate) => candidate.id === id),
-    { paths: [['document', 'todos']] }
-  )
-  const todoIndex = TodoReact.useSelector(
-    (state) =>
-      state.document.todos.findIndex((candidate) => candidate.id === id),
-    { paths: [['document', 'todos']] }
-  )
-  const edit = TodoReact.useCommand(editTodo)
-  const validation = useStoreView(workspace.validation)
+  const todo = useAtomValue(atoms.todo(id))
+  const todoIndex = useAtomValue(atoms.todoIndex(id))
+  const [editResult, edit] = useAtom(atoms.actions.edit)
+  const validation = useAtomValue(atoms.validation)
+  const dirty = useAtomValue(atoms.dirty)
   const titleIssues = validationIssuesAt(validation, [
     'document',
     'todos',
@@ -140,7 +132,7 @@ export const TodoEditor = ({
     readonly notes?: string
     readonly priority?: TodoPriority
   }): void => {
-    edit.run({
+    edit({
       id,
       title: changes.title ?? todo.title,
       notes: changes.notes ?? todo.notes,
@@ -179,8 +171,8 @@ export const TodoEditor = ({
       </label>
       {titleIssues.map((issue) => (
         <p
-          {...stylex.props(styles.issue)}
           key={`${issue.code ?? 'title'}:${issue.message}`}
+          {...stylex.props(styles.issue)}
         >
           {issue.message}
         </p>
@@ -201,8 +193,8 @@ export const TodoEditor = ({
       </label>
       {notesIssues.map((issue) => (
         <p
-          {...stylex.props(styles.issue)}
           key={`${issue.code ?? 'notes'}:${issue.message}`}
+          {...stylex.props(styles.issue)}
         >
           {issue.message}
         </p>
@@ -226,10 +218,10 @@ export const TodoEditor = ({
         </select>
       </label>
 
-      <AsyncFailure result={edit.result} />
+      <AsyncFailure result={editResult} />
       <footer {...stylex.props(styles.footer)}>
         <span>{todo.notes.length} / 240 note characters</span>
-        <strong>{workspace.isDirty() ? 'Uncommitted' : 'In sync'}</strong>
+        <strong>{dirty ? 'Uncommitted' : 'In sync'}</strong>
       </footer>
     </aside>
   )

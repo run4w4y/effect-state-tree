@@ -37,8 +37,11 @@ import { type LoroUndoController, makeLoroUndoController } from './undo'
 
 /** Document ownership, provenance, and native container materialization policy. */
 export interface MakeLoroAdapterOptions {
+  /** Loro document owned externally by the caller. */
   readonly doc: LoroDoc
+  /** Root map name inside the document; defaults to the adapter's standard root. */
   readonly rootName?: string
+  /** Optional stable provenance token for echo suppression. */
   readonly source?: SourceToken
   /**
    * Array paths that should be represented by `LoroMovableList` instead of
@@ -54,6 +57,7 @@ export interface MakeLoroAdapterOptions {
   readonly origin?: string
 }
 
+/** Options accepted when constructing a Schema-coded Loro adapter. */
 export type LoroAdapterOptions = MakeLoroAdapterOptions
 
 type AdapterServices<S extends Schema.Constraint> =
@@ -63,10 +67,13 @@ type AdapterServices<S extends Schema.Constraint> =
 /** Schema-coded Loro adapter with native movable lists, text, and peer undo. */
 export interface LoroAdapter<S extends Schema.Constraint>
   extends CrdtAdapter<S, LoroAdapterError, AdapterServices<S>> {
+  /** Loro document synchronized by the adapter. */
   readonly doc: LoroDoc
+  /** Root Loro map containing the encoded tree value. */
   readonly root: LoroMap
   /** Unique per-adapter Loro transaction origin used for echo suppression. */
   readonly origin: string
+  /** Peer-local native intention undo controller. */
   readonly undo: LoroUndoController
 }
 

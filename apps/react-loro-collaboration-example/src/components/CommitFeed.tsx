@@ -1,7 +1,7 @@
-import { useStoreView } from '@effect-state-tree/react'
+import { useAtomValue } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 
-import type { CollaborationPeer } from '../client/peer'
+import type { CollaborationAtoms } from '../client/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 
 const styles = stylex.create({
@@ -58,8 +58,12 @@ const styles = stylex.create({
   },
 })
 
-export const CommitFeed = ({ peer }: { readonly peer: CollaborationPeer }) => {
-  const entries = useStoreView(peer.commits)
+export const CommitFeed = ({
+  atoms,
+}: {
+  readonly atoms: CollaborationAtoms
+}) => {
+  const entries = useAtomValue(atoms.commits)
 
   if (entries.length === 0) {
     return <p {...stylex.props(styles.empty)}>No commits yet.</p>
@@ -72,7 +76,7 @@ export const CommitFeed = ({ peer }: { readonly peer: CollaborationPeer }) => {
       data-testid="commit-feed"
     >
       {entries.map((entry) => (
-        <li {...stylex.props(styles.entry)} key={entry.id}>
+        <li key={entry.id} {...stylex.props(styles.entry)}>
           <span
             {...stylex.props(
               styles.badge,

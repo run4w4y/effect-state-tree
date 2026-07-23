@@ -16,9 +16,11 @@ This file maps the source-audited plan to the current workspace.
 | Semantic object/splice/move/text operations | Implemented |
 | Effect transactional runtime and streams | Implemented |
 | Retry-safe guards and once-only sinks | Implemented |
+| Definition-derived async actions with inherited commit metadata | Implemented |
+| Path checkpoints and atomic conditional commits | Implemented |
 | Native Schema lifecycle diagnostics | Implemented |
-| Same-Schema mobx-keystone-style drafts | Implemented outside core |
-| Undo/redo/grouping/attached state | Implemented outside core |
+| Same-Schema mobx-keystone-style drafts | Implemented outside core, including checkpointed submit/refresh reconciliation |
+| Undo/redo/grouping/attached state | Implemented outside core, including ordered tagged baselines |
 | Provenance and echo suppression | Implemented outside core |
 | Yjs backend | Implemented |
 | Loro backend with native moves | Implemented |
@@ -28,16 +30,16 @@ This file maps the source-audited plan to the current workspace.
 | Supervised CRDT readiness, health, failure, idle, and shutdown | Implemented |
 | Backend-native local-intention undo | Implemented for Yjs and Loro |
 | Programmatic devtools/time travel | Implemented |
-| React/Solid/Vue/Svelte direct adapters | Implemented |
-| Effect Atom adapter | Implemented against `effect/unstable/reactivity` |
+| Effect Atom UI projection | Implemented against `effect/unstable/reactivity` with tree-provided Layers and native function atoms |
+| Framework-specific adapters | Deliberately delegated to official Effect Atom binding packages |
 | Foldkit pure reducer integration | Implemented without a runtime dependency |
 | React todo application | Implemented under `apps/react-todo-example` |
 | React Loro collaboration application | Implemented under `apps/react-loro-collaboration-example` |
-| Real HttpApi todo server and optimistic draft reconciliation | Implemented and covered by contract/browser tests |
+| Action-owned HttpApi todo workflows and race-safe optimistic draft reconciliation | Implemented and covered by contract/browser tests |
 | Arbitrary WebSocket collaboration peers and room isolation | Implemented and covered by multi-peer tests |
-| StyleX example application components | Implemented with Vite compilation |
+| StyleX example application components | Implemented with Rsbuild compilation |
 | Playwright end-to-end suites | Implemented with Nix-provisioned Chromium |
-| Nx, Bun, Vite, Biome, direnv, and Nix flake workspace | Implemented |
+| Nx, Bun, Rslib, Rsbuild, Biome, direnv, and Nix flake workspace | Implemented |
 
 ## Deliberate beta constraints
 

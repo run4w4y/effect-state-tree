@@ -1,42 +1,50 @@
-import { makeTreeOperationAction } from '@effect-state-tree/runtime'
 import { clamp } from 'es-toolkit'
 
 import { BoardTree, type Card } from '../domain/board'
 
-export const moveCard = makeTreeOperationAction(
-  BoardTree,
-  (state, operations, id: string, offset: number) => {
-    const from = state.cards.findIndex((card) => card.id === id)
+export const moveCard = BoardTree.operationUpdate(
+  (
+    state,
+    operations,
+    input: { readonly id: string; readonly offset: number }
+  ) => {
+    const from = state.cards.findIndex((card) => card.id === input.id)
     if (from === -1) return
-    const to = clamp(from + offset, 0, state.cards.length - 1)
+    const to = clamp(from + input.offset, 0, state.cards.length - 1)
     if (from !== to) operations.arrayMove(['cards'], from, to)
   },
   { label: 'Move card' }
 )
 
-export const renameCard = makeTreeOperationAction(
-  BoardTree,
-  (state, operations, id: string, title: string) => {
-    const index = state.cards.findIndex((card) => card.id === id)
-    if (index !== -1) operations.objectSet(['cards', index], 'title', title)
+export const renameCard = BoardTree.operationUpdate(
+  (
+    state,
+    operations,
+    input: { readonly id: string; readonly title: string }
+  ) => {
+    const index = state.cards.findIndex((card) => card.id === input.id)
+    if (index !== -1)
+      operations.objectSet(['cards', index], 'title', input.title)
   },
-  (_id, title) => ({ label: `Rename to "${title}"` })
+  (input) => ({ label: `Rename to "${input.title}"` })
 )
 
-export const addCard = makeTreeOperationAction(
-  BoardTree,
-  (state, operations, title: string, color: Card['color']) => {
+export const addCard = BoardTree.operationUpdate(
+  (
+    state,
+    operations,
+    input: { readonly title: string; readonly color: Card['color'] }
+  ) => {
     operations.arraySplice(['cards'], state.cards.length, 0, {
       id: crypto.randomUUID(),
-      title,
-      color,
+      title: input.title,
+      color: input.color,
     })
   },
-  (title) => ({ label: `Add "${title}"` })
+  (input) => ({ label: `Add "${input.title}"` })
 )
 
-export const removeCard = makeTreeOperationAction(
-  BoardTree,
+export const removeCard = BoardTree.operationUpdate(
   (state, operations, id: string) => {
     const index = state.cards.findIndex((card) => card.id === id)
     if (index !== -1) operations.arraySplice(['cards'], index, 1)
@@ -44,8 +52,7 @@ export const removeCard = makeTreeOperationAction(
   { label: 'Remove card' }
 )
 
-export const appendNote = makeTreeOperationAction(
-  BoardTree,
+export const appendNote = BoardTree.operationUpdate(
   (state, operations, text: string) => {
     if (text.length > 0)
       operations.textInsert(['notes'], state.notes.length, text)
@@ -53,8 +60,7 @@ export const appendNote = makeTreeOperationAction(
   { label: 'Insert collaborative text' }
 )
 
-export const deleteLastNoteCharacter = makeTreeOperationAction(
-  BoardTree,
+export const deleteLastNoteCharacter = BoardTree.operationUpdate(
   (state, operations) => {
     if (state.notes.length > 0) {
       operations.textDelete(['notes'], state.notes.length - 1, 1)

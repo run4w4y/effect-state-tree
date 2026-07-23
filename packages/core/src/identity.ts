@@ -27,8 +27,11 @@ export type EntityKey = string
 
 /** Location and identity of one entity in a particular snapshot revision. */
 export interface EntityIndexEntry {
+  /** Collision-safe serialized lookup key. */
   readonly key: EntityKey
+  /** Stable entity type and ID. */
   readonly identity: EntityIdentity
+  /** Current tuple path of the entity. */
   readonly path: TreePath
 }
 
@@ -96,13 +99,17 @@ export const buildEntityIndex = (
 
 /** Entity identity observed at one prefix of an anchored path. */
 export interface PathAnchor {
+  /** Number of path segments included by this anchor. */
   readonly depth: number
+  /** Entity observed at this prefix, when the Schema defines one. */
   readonly identity: EntityIdentity | undefined
 }
 
 /** Tuple path protected against array reorders by entity identity anchors. */
 export interface AnchoredPath {
+  /** Original tuple path captured by the anchor. */
   readonly path: TreePath
+  /** Entity identities protecting identifiable path prefixes. */
   readonly anchors: ReadonlyArray<PathAnchor>
 }
 

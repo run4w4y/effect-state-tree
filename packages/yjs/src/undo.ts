@@ -6,6 +6,7 @@ import type { YjsValue } from './yjs'
 
 /** Peer-local intention undo backed by `Y.UndoManager`. */
 export interface YjsUndoController extends CrdtUndoController<YjsUndoError> {
+  /** Native Yjs undo manager owned by this controller. */
   readonly manager: Y.UndoManager
 }
 

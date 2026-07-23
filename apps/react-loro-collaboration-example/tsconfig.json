@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "types": ["bun-types", "vite/client"]
+    "types": ["bun-types", "@rsbuild/core/types"]
   },
   "include": [
     "e2e/**/*.ts",
@@ -10,6 +10,6 @@
     "src/**/*.tsx",
     "test/**/*.ts",
     "playwright.config.ts",
-    "vite.config.ts"
+    "rsbuild.config.ts"
   ]
 }

@@ -1,10 +1,10 @@
+import { useAtom } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 import { Option, Schema } from 'effect'
 import { useState } from 'react'
 
 import { TodoPriority } from '../../shared/todo'
-import { addTodo } from '../state/actions'
-import { TodoReact } from '../state/todo-tree'
+import type { TodoAtoms } from '../state/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
 import { Button } from './Button'
@@ -44,10 +44,10 @@ const styles = stylex.create({
 
 const decodePriority = Schema.decodeUnknownOption(TodoPriority)
 
-export const TodoComposer = () => {
+export const TodoComposer = ({ atoms }: { readonly atoms: TodoAtoms }) => {
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TodoPriority>('normal')
-  const add = TodoReact.useCommand(addTodo)
+  const [addResult, add] = useAtom(atoms.actions.add)
 
   return (
     <section aria-labelledby="new-todo-heading">
@@ -58,7 +58,7 @@ export const TodoComposer = () => {
           event.preventDefault()
           const nextTitle = title.trim()
           if (nextTitle.length === 0) return
-          add.run({ title: nextTitle, priority })
+          add({ title: nextTitle, priority })
           setTitle('')
         }}
       >
@@ -67,7 +67,7 @@ export const TodoComposer = () => {
           <input
             {...stylex.props(styles.control, styles.grow)}
             aria-label="New todo title"
-            disabled={add.result.waiting}
+            disabled={addResult.waiting}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="What should happen next?"
             value={title}
@@ -78,7 +78,7 @@ export const TodoComposer = () => {
           <select
             {...stylex.props(styles.control)}
             aria-label="New todo priority"
-            disabled={add.result.waiting}
+            disabled={addResult.waiting}
             onChange={(event) => {
               const decoded = decodePriority(event.target.value)
               if (Option.isSome(decoded)) setPriority(decoded.value)
@@ -93,14 +93,14 @@ export const TodoComposer = () => {
           </select>
         </label>
         <Button
-          disabled={add.result.waiting || title.trim().length === 0}
+          disabled={addResult.waiting || title.trim().length === 0}
           type="submit"
           tone="primary"
         >
-          {add.result.waiting ? 'Adding…' : 'Add todo'}
+          {addResult.waiting ? 'Adding…' : 'Add todo'}
         </Button>
       </form>
-      <AsyncFailure result={add.result} />
+      <AsyncFailure result={addResult} />
     </section>
   )
 }

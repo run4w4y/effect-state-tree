@@ -1,4 +1,5 @@
 import type {
+  GetAtPathFailure,
   PatchSet,
   SnapshotOptions,
   TreeInvariantError,
@@ -34,6 +35,12 @@ import {
   TxQueue,
   TxRef,
 } from 'effect'
+import {
+  makeTreeCheckpoint,
+  type TreeCheckpoint,
+  type TreeCheckpointError,
+  validateTreeCheckpoint,
+} from './checkpoint'
 import { CurrentCommitContext } from './context'
 import { TransactionIds } from './transaction-id'
 import type {
@@ -51,9 +58,22 @@ import { TreeStoreShutdownError } from './types'
 
 /** Construction-time defaults and listener-failure reporting for a store. */
 export interface TreeStoreOptions {
+  /** Receives exceptions thrown by synchronous commit subscribers. */
   readonly onListenerError?: (error: unknown) => void
   /** Default lifecycle phase for commits that do not provide one explicitly. */
   readonly defaultValidationPhase?: TreeValidationPhase
+}
+
+const GuardNoChangeTypeId: unique symbol = Symbol(
+  '@effect-state-tree/runtime/GuardNoChange'
+)
+
+type InternalCommitOptions<S extends Schema.Constraint, E, R> = CommitOptions<
+  S,
+  E,
+  R
+> & {
+  readonly [GuardNoChangeTypeId]?: true
 }
 
 const makeNoChange = <S extends Schema.Constraint>(
@@ -165,6 +185,7 @@ export const makeTreeStore = <S extends Schema.Constraint>(
     })
     const commitHub = yield* TxPubSub.unbounded<ChangeEnvelope<S>>()
     const listeners = new Set<(commit: ChangeEnvelope<S>) => void>()
+    const storeIdentity = Object.freeze({})
     const pendingNotifications = new Map<number, ChangeEnvelope<S>>()
     let lastNotifiedRevision = 0
     let isFlushingNotifications = false
@@ -207,7 +228,7 @@ export const makeTreeStore = <S extends Schema.Constraint>(
       build: (
         state: TreeStoreState<S>
       ) => Result.Result<ProducedChange<TreeValue<S>>, BuildError>,
-      commitOptions: CommitOptions<S, E, R> = {}
+      commitOptions: InternalCommitOptions<S, E, R> = {}
     ): Effect.Effect<
       CommitResult<S>,
       BuildError | TreeStoreShutdownError | E,
@@ -227,6 +248,7 @@ export const makeTreeStore = <S extends Schema.Constraint>(
           snapshotOptionsFor(spec)
         )
         const source = commitOptions.source ?? inherited.source
+        const action = inherited.action
         const validationPhase =
           commitOptions.validationPhase ??
           inherited.validationPhase ??
@@ -248,10 +270,12 @@ export const makeTreeStore = <S extends Schema.Constraint>(
               })
             )
             const result = yield* Effect.fromResult(build(beforeState))
-            if (result.change.patches.forward.length === 0) {
+            if (
+              result.change.patches.forward.length === 0 &&
+              commitOptions[GuardNoChangeTypeId] !== true
+            ) {
               return makeNoChange(beforeState)
             }
-
             const change = freezeChange(result.change)
             const touchedPaths = Object.freeze(
               result.touchedPaths.map(freezePath)
@@ -268,9 +292,27 @@ export const makeTreeStore = <S extends Schema.Constraint>(
               ...(label !== undefined ? { label } : {}),
               ...(metadata !== undefined ? { metadata } : {}),
               ...(source !== undefined ? { source } : {}),
+              ...(action !== undefined ? { action } : {}),
             })
             if (commitOptions.guard !== undefined)
               yield* commitOptions.guard(proposal)
+
+            if (change.patches.forward.length === 0) {
+              const outcome = yield* Effect.tx(
+                Effect.gen(function* () {
+                  if (yield* TxPubSub.isShutdown(commitHub)) return 'shutdown'
+                  const current = yield* TxRef.get(stateRef)
+                  return current.revision === beforeState.revision
+                    ? 'current'
+                    : 'retry'
+                })
+              )
+              if (outcome === 'shutdown') {
+                return yield* Effect.fail(new TreeStoreShutdownError())
+              }
+              if (outcome === 'retry') return yield* attempt
+              return makeNoChange(beforeState)
+            }
 
             const committedAt = yield* Clock.currentTimeMillis
             const envelope: ChangeEnvelope<S> = Object.freeze({
@@ -317,6 +359,41 @@ export const makeTreeStore = <S extends Schema.Constraint>(
         return yield* attempt
       })
 
+    const checkpointOptions = <P extends TreePath, E, R>(
+      checkpoint: TreeCheckpoint<S, P>,
+      commitOptions: CommitOptions<S, E, R> = {}
+    ): InternalCommitOptions<S, TreeCheckpointError | E, R> => ({
+      ...commitOptions,
+      [GuardNoChangeTypeId]: true,
+      guard: (proposal) =>
+        Effect.flatMap(
+          Effect.fromResult(
+            validateTreeCheckpoint(storeIdentity, checkpoint, proposal)
+          ),
+          () => commitOptions.guard?.(proposal) ?? Effect.void
+        ),
+    })
+
+    function checkpoint(): Effect.Effect<
+      TreeCheckpoint<S, readonly []>,
+      GetAtPathFailure
+    >
+    function checkpoint<const P extends TreePath>(
+      path: P
+    ): Effect.Effect<TreeCheckpoint<S, P>, GetAtPathFailure>
+    function checkpoint(path: TreePath = []) {
+      return Effect.flatMap(TxRef.get(stateRef), (state) =>
+        Effect.fromResult(
+          makeTreeCheckpoint(
+            storeIdentity,
+            state.snapshot,
+            state.revision,
+            path
+          )
+        )
+      )
+    }
+
     const store: TreeStore<S> = {
       spec,
       get: Effect.map(TxRef.get(stateRef), (state) => state.snapshot),
@@ -339,6 +416,7 @@ export const makeTreeStore = <S extends Schema.Constraint>(
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
+      checkpoint,
       update(recipe, commitOptions) {
         return commitProposal(
           (state) => produceTreeChange(spec, state.snapshot, recipe),
@@ -378,6 +456,27 @@ export const makeTreeStore = <S extends Schema.Constraint>(
                 touchedPaths: reconciled.touchedPaths,
               })
             ),
+          commitOptions
+        )
+      },
+      updateIfCurrent(checkpoint, recipe, commitOptions) {
+        return store.update(
+          recipe,
+          checkpointOptions(checkpoint, commitOptions)
+        )
+      },
+      applyIfCurrent(checkpoint, change, commitOptions) {
+        return store.apply(change, checkpointOptions(checkpoint, commitOptions))
+      },
+      replaceAtCheckpoint(checkpoint, value, commitOptions) {
+        return store.applyIfCurrent(
+          checkpoint,
+          {
+            patches: {
+              forward: [{ op: 'replace', path: checkpoint.path, value }],
+              inverse: [],
+            },
+          },
           commitOptions
         )
       },

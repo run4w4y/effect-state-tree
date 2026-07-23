@@ -1,90 +1,124 @@
-import { withoutHistory } from '@effect-state-tree/history'
 import {
-  makeTreeAction,
-  makeTreeOperationAction,
-} from '@effect-state-tree/runtime'
-import { Effect } from 'effect'
+  validateTree,
+  validationIssuesBelow,
+} from '@effect-state-tree/validation'
+import { Effect, Option } from 'effect'
 
 import type { Todo, TodoFilter, TodoPriority } from '../../shared/todo'
-import { TodoTree } from './todo-tree'
+import { TodoConflict } from '../../shared/todo-api'
+import { TodoApiClient } from '../api'
+import { TodoDraftInvalidError } from './errors'
+import { TodoSession } from './session'
+import { TodoTree, todoSpec } from './tree'
+import {
+  changeFilter as changeFilterUpdate,
+  editTodo as editTodoUpdate,
+  insertTodo,
+  removeTodo as removeTodoUpdate,
+  toggleTodo as toggleTodoUpdate,
+} from './updates'
 
-const insertTodo = makeTreeOperationAction(
-  TodoTree,
-  (state, operations, todo: Todo) => {
-    operations.arraySplice(
-      ['document', 'todos'],
-      state.document.todos.length,
-      0,
-      todo
+const refreshTodoDocument = () =>
+  Effect.gen(function* () {
+    const session = yield* TodoSession
+    const client = yield* TodoApiClient
+    return yield* session.draft.refreshAt(['document'], () =>
+      client.todoDocuments.get({ params: { id: session.documentId } })
     )
-  },
-  (todo) => ({ label: `Add “${todo.title}”` })
+  })
+
+export const loadTodoDocument = TodoTree.action(
+  'Todo.load',
+  refreshTodoDocument
 )
 
-export const addTodo = (input: {
-  readonly title: string
-  readonly priority: TodoPriority
-}) =>
-  Effect.flatMap(
-    Effect.sync(
-      (): Todo => ({
-        id: globalThis.crypto.randomUUID(),
-        title: input.title,
-        notes: '',
-        priority: input.priority,
-        completed: false,
-      })
-    ),
-    insertTodo
-  )
-
-export const toggleTodo = makeTreeAction(
-  TodoTree,
-  (state, id: string) => {
-    const todo = state.document.todos.find((candidate) => candidate.id === id)
-    if (todo !== undefined) todo.completed = !todo.completed
-  },
-  { label: 'Toggle todo' }
+export const reloadTodoDocument = TodoTree.action(
+  'Todo.reload',
+  refreshTodoDocument
 )
 
-export const editTodo = makeTreeAction(
-  TodoTree,
-  (
-    state,
-    input: {
-      readonly id: string
-      readonly title: string
-      readonly notes: string
-      readonly priority: TodoPriority
+export const saveTodoDocument = TodoTree.action('Todo.save', () =>
+  Effect.gen(function* () {
+    const session = yield* TodoSession
+    const client = yield* TodoApiClient
+
+    return yield* session.draft.submitAt(
+      ['document'],
+      ({ draft, original, submitted }) =>
+        Effect.gen(function* () {
+          const issues = validationIssuesBelow(
+            validateTree(todoSpec, draft, { phase: 'draft' }),
+            ['document']
+          ).filter((issue) => issue.severity === 'error')
+          if (issues.length > 0) {
+            return yield* new TodoDraftInvalidError({
+              issueCount: issues.length,
+            })
+          }
+
+          return yield* client.todoDocuments.save({
+            params: { id: session.documentId },
+            payload: {
+              expectedVersion: original.version,
+              todos: submitted.todos,
+            },
+          })
+        }),
+      {
+        authoritativeFailure: (error) =>
+          error instanceof TodoConflict
+            ? Option.some(error.current)
+            : Option.none(),
+      }
+    )
+  })
+)
+
+export const resetTodoDraft = TodoTree.action('Todo.reset', () =>
+  Effect.flatMap(TodoSession, (session) => session.draft.resetAt(['document']))
+)
+
+export const undoTodoChange = TodoTree.action('Todo.undo', () =>
+  Effect.flatMap(TodoSession, (session) => session.history.undo)
+)
+
+export const redoTodoChange = TodoTree.action('Todo.redo', () =>
+  Effect.flatMap(TodoSession, (session) => session.history.redo)
+)
+
+export const addTodo = TodoTree.action(
+  'Todo.add',
+  (input: { readonly title: string; readonly priority: TodoPriority }) => {
+    const todo: Todo = {
+      id: globalThis.crypto.randomUUID(),
+      title: input.title,
+      notes: '',
+      priority: input.priority,
+      completed: false,
     }
-  ) => {
-    const todo = state.document.todos.find(
-      (candidate) => candidate.id === input.id
-    )
-    if (todo === undefined) return
-    todo.title = input.title
-    todo.notes = input.notes
-    todo.priority = input.priority
-  },
-  { label: 'Edit todo' }
+    return insertTodo(todo)
+  }
 )
 
-export const removeTodo = makeTreeOperationAction(
-  TodoTree,
-  (state, operations, id: string) => {
-    const index = state.document.todos.findIndex((todo) => todo.id === id)
-    if (index !== -1) operations.arraySplice(['document', 'todos'], index, 1)
-  },
-  { label: 'Remove todo' }
+export const toggleTodo = TodoTree.action('Todo.toggle', (id: string) =>
+  toggleTodoUpdate(id)
 )
 
-const setFilter = makeTreeAction(
-  TodoTree,
-  (state, filter: TodoFilter) => {
-    state.filter = filter
-  },
-  { label: 'Change filter' }
+export const editTodo = TodoTree.action(
+  'Todo.edit',
+  (input: {
+    readonly id: string
+    readonly title: string
+    readonly notes: string
+    readonly priority: TodoPriority
+  }) => editTodoUpdate(input)
 )
 
-export const changeFilter = (filter: TodoFilter) =>
-  withoutHistory(setFilter(filter))
+export const removeTodo = TodoTree.action('Todo.remove', (id: string) =>
+  removeTodoUpdate(id)
+)
+
+export const changeFilter = TodoTree.action(
+  'Todo.changeFilter',
+  (filter: TodoFilter) => changeFilterUpdate(filter)
+)

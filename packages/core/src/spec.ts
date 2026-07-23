@@ -49,7 +49,9 @@ export const treeSchemaParseOptions = (
 
 /** Stable entity type and ID-property metadata stored on an Effect Schema. */
 export interface EntityAnnotation {
+  /** Stable entity namespace. */
   readonly type: string
+  /** Property containing the stable string or number ID. */
   readonly id: string
 }
 
@@ -87,17 +89,23 @@ const CompiledNavigationSymbol: unique symbol = Symbol(
  * runtime interpreter for `schema`, never a second model declaration.
  */
 export interface TreeSpec<S extends Schema.Constraint> {
+  /** Original Effect Schema supplied by the application. */
   readonly schema: S
   /** Canonical JSON codec derived once from the source Schema. */
   readonly jsonCodec: Schema.toCodecJson<S>
+  /** Type-side Schema used for decoded tree admission. */
   readonly typeSchema: Schema.toType<S>
+  /** Root type AST used by compiled tuple-path navigation. */
   readonly typeAst: SchemaAST.AST
+  /** Atomic leaf interpreters active for this tree. */
   readonly atomicInterpreters: ReadonlyArray<AtomicInterpreter<unknown>>
+  /** Precompiled private navigation data used by path-based operations. */
   readonly [CompiledNavigationSymbol]: CompiledNavigation
 }
 
 /** Optional extensions used while compiling a tree Schema. */
 export interface TreeSpecOptions {
+  /** Additional immutable atomic leaf interpreters. */
   readonly atomicInterpreters?: ReadonlyArray<AtomicInterpreter<unknown>>
 }
 
@@ -268,12 +276,15 @@ export const normalizeAstForValue = (
   return chain.at(-1) ?? ast
 }
 
+/** Schema, value, and annotation context observed during a tree walk. */
 export interface SchemaWalkEntry {
   /** The selected concrete AST used for tree traversal. */
   readonly ast: SchemaAST.AST
   /** Wrapper-to-concrete AST chain, retaining checks on Union and Suspend nodes. */
   readonly asts: ReadonlyArray<SchemaAST.AST>
+  /** Decoded value represented by the selected AST. */
   readonly value: unknown
+  /** Tuple path of the decoded value. */
   readonly path: TreePath
 }
 

@@ -6,6 +6,8 @@ import {
   admissionGuard,
   diagnosticCheck,
   makeValidationController,
+  makeValidationControllerScoped,
+  type ValidationController,
   validateTree,
   validationIssuesAt,
   validationIssuesBelow,
@@ -34,6 +36,34 @@ const State = Schema.Struct({
 const spec = makeTreeSpec(State)
 
 describe('Schema lifecycle validation', () => {
+  it('stops observing commits when its surrounding Scope closes', async () => {
+    const store = await Effect.runPromise(
+      makeTreeStore(spec, { percentage: 50, minimum: 0, maximum: 10 })
+    )
+    let validation: ValidationController | undefined
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          validation = yield* makeValidationControllerScoped(store)
+          yield* store.update((state) => {
+            state.percentage = 75
+          })
+          expect(validation.getReport().revision).toBe(1)
+        })
+      )
+    )
+
+    if (validation === undefined) throw new Error('Expected scoped validation')
+    await Effect.runPromise(
+      store.update((state) => {
+        state.percentage = 80
+      })
+    )
+    expect(validation.getReport().revision).toBe(1)
+    await Effect.runPromise(store.shutdown)
+  })
+
   it('uses one Schema while allowing diagnostic intermediate domain values', async () => {
     const external = SchemaParser.decodeUnknownResult(spec.typeSchema, {
       errors: 'all',

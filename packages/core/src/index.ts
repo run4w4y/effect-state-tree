@@ -67,6 +67,7 @@ export type {
   JsonPointerDecodeResult,
   TreePath,
   TreePathSegment,
+  TreePathValue,
 } from './path'
 export {
   formatTreePath,

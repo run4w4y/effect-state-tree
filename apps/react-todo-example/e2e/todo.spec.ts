@@ -1,14 +1,13 @@
 import {
+  guardPageErrors,
+  type PageErrorGuard,
+} from '@effect-state-tree/test-infrastructure'
+import {
   type APIRequestContext,
   test as base,
   expect,
   type Page,
 } from '@playwright/test'
-
-import {
-  guardPageErrors,
-  type PageErrorGuard,
-} from '../../../tools/playwright/page-errors'
 
 const apiUrl = 'http://127.0.0.1:4312'
 const expectedConflictPages = new WeakSet<Page>()
@@ -37,6 +36,14 @@ interface TodoDocumentJson {
 
 interface PageErrorFixture {
   readonly pageErrorGuard: PageErrorGuard
+}
+
+const makeGate = () => {
+  let open: () => void = () => undefined
+  const wait = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { open, wait }
 }
 
 const test = base.extend<PageErrorFixture>({
@@ -169,6 +176,90 @@ test('saves once and reconciles the authoritative server document', async ({
   expect(saved.todos[0]?.notes).toBe('normalized by the server')
 })
 
+test('preserves edits made while a save request is in flight', async ({
+  page,
+  request,
+}) => {
+  const documentId = 'e2e-save-in-flight'
+  await openDocument(page, documentId)
+  await page.getByRole('button', { name: 'Edit' }).first().click()
+  const editor = page.getByRole('complementary', { name: 'Todo editor' })
+  const notes = editor.getByLabel('Notes')
+  await notes.fill('submitted before the delayed response')
+
+  const requestStarted = makeGate()
+  const releaseRequest = makeGate()
+  await page.route(apiDocumentUrl(documentId), async (route) => {
+    if (route.request().method() !== 'PUT') {
+      await route.continue()
+      return
+    }
+    requestStarted.open()
+    await releaseRequest.wait
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Save to server' }).click()
+  await requestStarted.wait
+  await expect(page.getByRole('button', { name: 'Saving…' })).toBeVisible()
+
+  await notes.fill('newer edit that must remain local')
+  await expect(notes).toHaveValue('newer edit that must remain local')
+  releaseRequest.open()
+
+  await expect(
+    page.getByText(
+      'Saved server version 2; newer local changes remain in the draft.'
+    )
+  ).toBeVisible()
+  await expect(page.getByText('original v2 / draft v1')).toBeVisible()
+  await expect(page.getByText('local changes pending')).toBeVisible()
+  await expect(notes).toHaveValue('newer edit that must remain local')
+
+  const saved = await getDocument(request, documentId)
+  expect(saved.version).toBe(2)
+  expect(saved.todos[0]?.notes).toBe('submitted before the delayed response')
+})
+
+test('does not overwrite an edit that starts while reload is in flight', async ({
+  page,
+}) => {
+  const documentId = 'e2e-reload-in-flight'
+  await openDocument(page, documentId)
+  await page.getByRole('button', { name: 'Edit' }).first().click()
+  const editor = page.getByRole('complementary', { name: 'Todo editor' })
+  const notes = editor.getByLabel('Notes')
+
+  const requestStarted = makeGate()
+  const releaseRequest = makeGate()
+  await page.route(apiDocumentUrl(documentId), async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    requestStarted.open()
+    await releaseRequest.wait
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Reload server' }).click()
+  await requestStarted.wait
+  await expect(page.getByRole('button', { name: 'Reloading…' })).toBeVisible()
+
+  await notes.fill('local edit during reload')
+  await expect(notes).toHaveValue('local edit during reload')
+  releaseRequest.open()
+
+  await expect(
+    page.getByText(
+      'Reloaded server version 1; newer local changes remain in the draft.'
+    )
+  ).toBeVisible()
+  await expect(notes).toHaveValue('local edit during reload')
+  await expect(page.getByText('original v1 / draft v1')).toBeVisible()
+  await expect(page.getByText('local changes pending')).toBeVisible()
+})
+
 test('preserves the local draft and history after a version conflict', async ({
   page,
   request,
@@ -200,7 +291,7 @@ test('preserves the local draft and history after a version conflict', async ({
   await expect(
     page.getByRole('heading', { name: 'Unsaved conflict item' })
   ).toBeVisible()
-  await expect(page.getByText('original v1 / draft v1')).toBeVisible()
+  await expect(page.getByText('original v2 / draft v1')).toBeVisible()
   await expect(page.getByText('local changes pending')).toBeVisible()
   await expect(page.getByText('1 undo / 0 redo')).toBeVisible()
 

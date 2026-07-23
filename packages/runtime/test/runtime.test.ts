@@ -5,17 +5,15 @@ import {
   type TreeValue,
 } from '@effect-state-tree/core'
 import { Deferred, Effect, Exit, Fiber, HashSet, Schema, Stream } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
 import type { ChangeEnvelope, CommitResult, TreeStore } from '../src/index'
 import {
   defineTree,
-  makeCommandController,
-  makeTreeAction,
-  makeTreeOperationAction,
   makeTreeStore,
   makeTreeStoreScoped,
   runCommitSink,
   TransactionIds,
+  TreeCheckpointConflict,
+  TreeCheckpointStoreMismatch,
   transactionIdsFrom,
   withCommitContext,
 } from '../src/index'
@@ -42,19 +40,30 @@ const actionDefinition = defineTree(
   '@effect-state-tree/runtime-test/ActionState',
   makeTreeSpec(ActionSchema)
 )
-const addToCounter = makeTreeAction(
-  actionDefinition,
+const addToCounter = actionDefinition.update(
   (state, amount: number) => {
     state.counter += amount
   },
   (amount) => ({ label: `Add ${amount}` })
 )
-const appendItem = makeTreeOperationAction(
-  actionDefinition,
+const appendItem = actionDefinition.operationUpdate(
   (state, operations, value: string) => {
     operations.arraySplice(['items'], state.items.length, 0, value)
   },
   { label: 'Append item' }
+)
+const asynchronousAction = actionDefinition.action(
+  'Action.asynchronous',
+  (input: {
+    readonly started: Deferred.Deferred<void>
+    readonly release: Deferred.Deferred<void>
+  }) =>
+    Effect.gen(function* () {
+      yield* addToCounter(1)
+      yield* Deferred.succeed(input.started, undefined)
+      yield* Deferred.await(input.release)
+      yield* appendItem('after-await')
+    })
 )
 
 const runtimeSpec = makeTreeSpec(RuntimeSchema)
@@ -79,6 +88,53 @@ const committed = <S extends Schema.Constraint>(
 }
 
 describe('TreeStore runtime', () => {
+  it('rejects a conditional write when its watched path changed', async () => {
+    const store = await makeStore()
+    const checkpoint = await Effect.runPromise(store.checkpoint(['left']))
+    await Effect.runPromise(
+      store.update((state) => {
+        state.left.value = 1
+      })
+    )
+
+    const error = await Effect.runPromise(
+      Effect.flip(store.replaceAtCheckpoint(checkpoint, { value: 2, other: 0 }))
+    )
+    expect(error).toBeInstanceOf(TreeCheckpointConflict)
+    expect(store.getSnapshot().left.value).toBe(1)
+  })
+
+  it('keeps a path checkpoint valid across unrelated commits', async () => {
+    const store = await makeStore()
+    const checkpoint = await Effect.runPromise(store.checkpoint(['left']))
+    await Effect.runPromise(
+      store.update((state) => {
+        state.right.value = 1
+      })
+    )
+
+    await Effect.runPromise(
+      store.replaceAtCheckpoint(checkpoint, { value: 2, other: 3 })
+    )
+    expect(store.getSnapshot()).toMatchObject({
+      left: { value: 2, other: 3 },
+      right: { value: 1 },
+    })
+  })
+
+  it('rejects checkpoints captured by another store instance', async () => {
+    const first = await makeStore()
+    const second = await makeStore()
+    const checkpoint = await Effect.runPromise(first.checkpoint(['left']))
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        second.replaceAtCheckpoint(checkpoint, { value: 2, other: 3 })
+      )
+    )
+    expect(error).toBeInstanceOf(TreeCheckpointStoreMismatch)
+  })
+
   it('preserves every concurrent update and notifies in revision order', async () => {
     const store = await makeStore()
     const observed: Array<ChangeEnvelope<typeof RuntimeSchema>> = []
@@ -573,209 +629,6 @@ describe('TreeStore runtime', () => {
     }
   })
 
-  it('exposes Effect-native command results', async () => {
-    const controller = makeCommandController(
-      { runFork: Effect.runFork },
-      (value: number) => Effect.succeed(value * 2)
-    )
-    const states: Array<string> = []
-    const unsubscribe = controller.subscribe(() => {
-      const result = controller.getSnapshot()
-      states.push(`${result._tag}:${result.waiting}`)
-    })
-
-    const fiber = controller.run(2)
-    await Effect.runPromise(Fiber.await(fiber))
-
-    expect(states).toEqual(['Initial:true', 'Success:false'])
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 4,
-      waiting: false,
-    })
-    controller.reset()
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Initial',
-      waiting: false,
-    })
-    unsubscribe()
-    controller.dispose()
-  })
-
-  it('interrupts the superseded command in switch mode', async () => {
-    const firstStarted = Deferred.makeUnsafe<void>()
-    const firstInterrupted = Deferred.makeUnsafe<void>()
-    const controller = makeCommandController(
-      { runFork: Effect.runFork },
-      (name: 'first' | 'second') =>
-        name === 'second'
-          ? Effect.succeed(2)
-          : Deferred.succeed(firstStarted, undefined).pipe(
-              Effect.andThen(Effect.never),
-              Effect.onInterrupt(() =>
-                Deferred.succeed(firstInterrupted, undefined)
-              )
-            )
-    )
-
-    const firstFiber = controller.run('first')
-    await Effect.runPromise(Deferred.await(firstStarted))
-    const secondFiber = controller.run('second')
-
-    await Effect.runPromise(Deferred.await(firstInterrupted))
-    await Effect.runPromise(Fiber.await(firstFiber))
-    await Effect.runPromise(Fiber.await(secondFiber))
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 2,
-      waiting: false,
-    })
-    controller.dispose()
-  })
-
-  it('suppresses a superseded command that settles after its replacement', async () => {
-    const firstStarted = Deferred.makeUnsafe<void>()
-    const first = Deferred.makeUnsafe<number>()
-    const controller = makeCommandController(
-      { runFork: Effect.runFork },
-      (name: 'first' | 'second') =>
-        name === 'second'
-          ? Effect.succeed(2)
-          : Effect.uninterruptible(
-              Deferred.succeed(firstStarted, undefined).pipe(
-                Effect.andThen(Deferred.await(first))
-              )
-            )
-    )
-
-    const firstFiber = controller.run('first')
-    await Effect.runPromise(Deferred.await(firstStarted))
-    const secondFiber = controller.run('second')
-    await Effect.runPromise(Fiber.await(secondFiber))
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 2,
-      waiting: false,
-    })
-
-    Deferred.doneUnsafe(first, Effect.succeed(1))
-    await Effect.runPromise(Fiber.await(firstFiber))
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 2,
-      waiting: false,
-    })
-    controller.dispose()
-  })
-
-  it('tracks every merged command and retains the latest invocation result', async () => {
-    const first = Deferred.makeUnsafe<number>()
-    const second = Deferred.makeUnsafe<number>()
-    const controller = makeCommandController(
-      { runFork: Effect.runFork },
-      (name: 'first' | 'second') =>
-        Deferred.await(name === 'first' ? first : second),
-      { execution: 'merge' }
-    )
-
-    const firstFiber = controller.run('first')
-    const secondFiber = controller.run('second')
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Initial',
-      waiting: true,
-    })
-
-    Deferred.doneUnsafe(second, Effect.succeed(2))
-    await Effect.runPromise(Fiber.await(secondFiber))
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 2,
-      waiting: true,
-    })
-
-    Deferred.doneUnsafe(first, Effect.succeed(1))
-    await Effect.runPromise(Fiber.await(firstFiber))
-    expect(controller.getSnapshot()).toMatchObject({
-      _tag: 'Success',
-      value: 2,
-      waiting: false,
-    })
-    controller.dispose()
-  })
-
-  for (const control of ['cancel', 'reset'] as const) {
-    it(`${control}s every merged command and returns to Initial`, async () => {
-      const firstStarted = Deferred.makeUnsafe<void>()
-      const secondStarted = Deferred.makeUnsafe<void>()
-      const firstInterrupted = Deferred.makeUnsafe<void>()
-      const secondInterrupted = Deferred.makeUnsafe<void>()
-      const controller = makeCommandController(
-        { runFork: Effect.runFork },
-        (name: 'first' | 'second') =>
-          Deferred.succeed(
-            name === 'first' ? firstStarted : secondStarted,
-            undefined
-          ).pipe(
-            Effect.andThen(Effect.never),
-            Effect.onInterrupt(() =>
-              Deferred.succeed(
-                name === 'first' ? firstInterrupted : secondInterrupted,
-                undefined
-              )
-            )
-          ),
-        { execution: 'merge' }
-      )
-
-      const firstFiber = controller.run('first')
-      const secondFiber = controller.run('second')
-      await Effect.runPromise(
-        Effect.all([
-          Deferred.await(firstStarted),
-          Deferred.await(secondStarted),
-        ])
-      )
-      controller[control]()
-
-      await Effect.runPromise(
-        Effect.all([
-          Deferred.await(firstInterrupted),
-          Deferred.await(secondInterrupted),
-        ])
-      )
-      await Effect.runPromise(
-        Effect.all([Fiber.await(firstFiber), Fiber.await(secondFiber)])
-      )
-      expect(controller.getSnapshot()).toMatchObject({
-        _tag: 'Initial',
-        waiting: false,
-      })
-      controller.dispose()
-    })
-  }
-
-  it('retains the previous success when a later command fails', async () => {
-    const controller = makeCommandController(
-      { runFork: Effect.runFork },
-      (succeed: boolean) =>
-        succeed ? Effect.succeed(42) : Effect.fail('command failed')
-    )
-
-    await Effect.runPromise(Fiber.await(controller.run(true)))
-    await Effect.runPromise(Fiber.await(controller.run(false)))
-
-    const result = controller.getSnapshot()
-    expect(AsyncResult.isFailure(result)).toBe(true)
-    if (AsyncResult.isFailure(result)) {
-      expect(result.waiting).toBe(false)
-      expect(result.previousSuccess).toMatchObject({
-        _tag: 'Some',
-        value: { _tag: 'Success', value: 42 },
-      })
-    }
-    controller.dispose()
-  })
-
   it('derives scoped Layers and context-resolved semantic actions', async () => {
     const result = await Effect.runPromise(
       Effect.scoped(
@@ -813,5 +666,64 @@ describe('TreeStore runtime', () => {
       deleteCount: 0,
       inserted: ['first'],
     })
+  })
+
+  it('keeps async action metadata across commits separated by an await', async () => {
+    const commits = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* actionDefinition.service
+          const observed: Array<ChangeEnvelope<typeof ActionSchema>> = []
+          store.subscribe((commit) => observed.push(commit))
+          const started = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* Effect.forkChild(
+            asynchronousAction({ started, release })
+          )
+          yield* Deferred.await(started)
+          yield* Deferred.succeed(release, undefined)
+          yield* Fiber.join(fiber)
+          return observed
+        }).pipe(
+          Effect.provide(
+            actionDefinition.layer({
+              counter: 0,
+              items: [],
+            })
+          )
+        )
+      )
+    )
+
+    expect(commits).toHaveLength(2)
+    expect(commits[0]?.action?.name).toBe('Action.asynchronous')
+    expect(commits[1]?.action).toEqual(commits[0]?.action)
+  })
+
+  it('uses ordinary Effect interruption semantics for async actions', async () => {
+    const snapshot = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* actionDefinition.service
+          const started = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          const fiber = yield* Effect.forkChild(
+            asynchronousAction({ started, release })
+          )
+          yield* Deferred.await(started)
+          yield* Fiber.interrupt(fiber)
+          return store.getSnapshot()
+        }).pipe(
+          Effect.provide(
+            actionDefinition.layer({
+              counter: 0,
+              items: [],
+            })
+          )
+        )
+      )
+    )
+
+    expect(snapshot).toEqual({ counter: 1, items: [] })
   })
 })

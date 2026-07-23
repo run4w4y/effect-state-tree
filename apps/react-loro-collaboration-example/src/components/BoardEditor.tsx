@@ -1,17 +1,10 @@
-import { useTreeCommand } from '@effect-state-tree/react'
+import { useAtom, useAtomValue } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 import { Option, Schema } from 'effect'
 import { useState } from 'react'
 
-import {
-  addCard,
-  appendNote,
-  deleteLastNoteCharacter,
-  moveCard,
-  removeCard,
-  renameCard,
-} from '../client/actions'
-import { BoardReact, type CollaborationPeer } from '../client/peer'
+import type { CollaborationAtoms } from '../client/atoms'
+import type { CollaborationPeer } from '../client/peer'
 import { CardColor, type Card as CardType } from '../domain/board'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
@@ -177,23 +170,24 @@ const styles = stylex.create({
 
 const colorStyle = (color: CardType['color']) => styles[color]
 
-export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
-  const cards = BoardReact.useSelector((board) => board.cards, {
-    paths: [['cards']],
-  })
-  const notes = BoardReact.useSelector((board) => board.notes, {
-    paths: [['notes']],
-  })
-  const move = BoardReact.useCommand(moveCard, { execution: 'merge' })
-  const rename = BoardReact.useCommand(renameCard)
-  const add = BoardReact.useCommand(addCard, { execution: 'merge' })
-  const remove = BoardReact.useCommand(removeCard, { execution: 'merge' })
-  const append = BoardReact.useCommand(appendNote, { execution: 'merge' })
-  const deleteCharacter = BoardReact.useCommand(deleteLastNoteCharacter, {
-    execution: 'merge',
-  })
-  const undo = useTreeCommand(peer.undo, { execution: 'merge' })
-  const redo = useTreeCommand(peer.redo, { execution: 'merge' })
+export const BoardEditor = ({
+  atoms,
+  peer,
+}: {
+  readonly atoms: CollaborationAtoms
+  readonly peer: CollaborationPeer
+}) => {
+  const cards = useAtomValue(atoms.cards)
+  const notes = useAtomValue(atoms.notes)
+  const revision = useAtomValue(atoms.revision)
+  const [moveResult, move] = useAtom(atoms.actions.move)
+  const [renameResult, rename] = useAtom(atoms.actions.rename)
+  const [addResult, add] = useAtom(atoms.actions.add)
+  const [removeResult, remove] = useAtom(atoms.actions.remove)
+  const [appendResult, append] = useAtom(atoms.actions.append)
+  const [deleteResult, deleteCharacter] = useAtom(atoms.actions.deleteCharacter)
+  const [undoResult, undo] = useAtom(atoms.actions.undo)
+  const [redoResult, redo] = useAtom(atoms.actions.redo)
   const [cardTitle, setCardTitle] = useState('')
   const [cardColor, setCardColor] = useState<CardType['color']>('blue')
   const [note, setNote] = useState('')
@@ -212,9 +206,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
           <h2 {...stylex.props(styles.peerName)}>{peer.name}</h2>
         </span>
         <span {...stylex.props(styles.revision)}>
-          <strong {...stylex.props(styles.revisionNumber)}>
-            {peer.store.getRevision()}
-          </strong>
+          <strong {...stylex.props(styles.revisionNumber)}>{revision}</strong>
           <span {...stylex.props(styles.eyebrow)}>revision</span>
         </span>
       </header>
@@ -226,10 +218,10 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
             <h3 {...stylex.props(styles.title)}>Intent-preserving cards</h3>
           </span>
           <span {...stylex.props(styles.compactActions)}>
-            <Button compact onClick={() => undo.run()}>
+            <Button compact onClick={() => undo(undefined)}>
               Undo mine
             </Button>
-            <Button compact onClick={() => redo.run()}>
+            <Button compact onClick={() => redo(undefined)}>
               Redo
             </Button>
           </span>
@@ -238,22 +230,24 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
         <ol {...stylex.props(styles.cards)}>
           {cards.map((card, index) => (
             <li
-              {...stylex.props(styles.card, colorStyle(card.color))}
               key={card.id}
+              {...stylex.props(styles.card, colorStyle(card.color))}
             >
               <span {...stylex.props(styles.index)}>{index + 1}</span>
               <input
                 {...stylex.props(styles.input)}
                 aria-label={`Rename ${card.title}`}
                 value={card.title}
-                onChange={(event) => rename.run(card.id, event.target.value)}
+                onChange={(event) =>
+                  rename({ id: card.id, title: event.target.value })
+                }
               />
               <span {...stylex.props(styles.cardActions)}>
                 <Button
                   aria-label={`Move ${card.title} left`}
                   compact
                   disabled={index === 0}
-                  onClick={() => move.run(card.id, -1)}
+                  onClick={() => move({ id: card.id, offset: -1 })}
                 >
                   ←
                 </Button>
@@ -261,14 +255,14 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
                   aria-label={`Move ${card.title} right`}
                   compact
                   disabled={index === cards.length - 1}
-                  onClick={() => move.run(card.id, 1)}
+                  onClick={() => move({ id: card.id, offset: 1 })}
                 >
                   →
                 </Button>
                 <Button
                   aria-label={`Remove ${card.title}`}
                   compact
-                  onClick={() => remove.run(card.id)}
+                  onClick={() => remove(card.id)}
                   tone="danger"
                 >
                   ×
@@ -284,7 +278,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
             event.preventDefault()
             const title = cardTitle.trim()
             if (title.length === 0) return
-            add.run(title, cardColor)
+            add({ title, color: cardColor })
             setCardTitle('')
           }}
         >
@@ -310,7 +304,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
               </option>
             ))}
           </select>
-          <Button disabled={add.result.waiting} tone="primary" type="submit">
+          <Button disabled={addResult.waiting} tone="primary" type="submit">
             Add
           </Button>
         </form>
@@ -325,7 +319,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
           <Button
             compact
             disabled={notes.length === 0}
-            onClick={() => deleteCharacter.run()}
+            onClick={() => deleteCharacter(undefined)}
           >
             Delete last
           </Button>
@@ -338,7 +332,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
           onSubmit={(event) => {
             event.preventDefault()
             if (note.length === 0) return
-            append.run(`${note} `)
+            append(`${note} `)
             setNote('')
           }}
         >
@@ -350,21 +344,21 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
             value={note}
           />
           <span />
-          <Button disabled={append.result.waiting} tone="primary" type="submit">
+          <Button disabled={appendResult.waiting} tone="primary" type="submit">
             Insert
           </Button>
         </form>
       </section>
 
       <div {...stylex.props(styles.failures)}>
-        <AsyncFailure result={add.result} />
-        <AsyncFailure result={move.result} />
-        <AsyncFailure result={rename.result} />
-        <AsyncFailure result={remove.result} />
-        <AsyncFailure result={append.result} />
-        <AsyncFailure result={deleteCharacter.result} />
-        <AsyncFailure result={undo.result} />
-        <AsyncFailure result={redo.result} />
+        <AsyncFailure result={addResult} />
+        <AsyncFailure result={moveResult} />
+        <AsyncFailure result={renameResult} />
+        <AsyncFailure result={removeResult} />
+        <AsyncFailure result={appendResult} />
+        <AsyncFailure result={deleteResult} />
+        <AsyncFailure result={undoResult} />
+        <AsyncFailure result={redoResult} />
       </div>
 
       <section {...stylex.props(styles.section)}>
@@ -374,7 +368,7 @@ export const BoardEditor = ({ peer }: { readonly peer: CollaborationPeer }) => {
             <h3 {...stylex.props(styles.title)}>Commit feed</h3>
           </span>
         </header>
-        <CommitFeed peer={peer} />
+        <CommitFeed atoms={atoms} />
       </section>
     </article>
   )

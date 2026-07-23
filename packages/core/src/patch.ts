@@ -45,6 +45,7 @@ export type TreePatch =
 
 /** Forward changes paired with directly executable inverse changes. */
 export interface PatchSet {
+  /** Ordered changes executable against the pre-change snapshot. */
   readonly forward: ReadonlyArray<TreePatch>
   /** Directly executable in stored order against the post-change snapshot. */
   readonly inverse: ReadonlyArray<TreePatch>
@@ -52,8 +53,11 @@ export interface PatchSet {
 
 /** Immutable result of applying or diffing a patch sequence. */
 export interface AppliedPatches<A> {
+  /** Immutable post-change snapshot. */
   readonly snapshot: A
+  /** Forward and directly executable inverse patches. */
   readonly patchSet: PatchSet
+  /** Paths affected by the ordered patch sequence. */
   readonly touchedPaths: ReadonlyArray<TreePath>
 }
 
@@ -461,6 +465,7 @@ export const prefixPatchSet = (
     ),
   })
 
+/** Failures possible while converting between tree and Effect JSON patches. */
 export type TreeJsonPatchError =
   | TreeCodecError
   | JsonPointerDecodeError

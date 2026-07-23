@@ -18,7 +18,9 @@ import {
 
 /** Canonical admitted snapshot and its Schema-derived identity index. */
 export interface AdmittedTree<S extends Schema.Constraint> {
+  /** Canonical immutable tree snapshot. */
   readonly snapshot: TreeValue<S>
+  /** Stable-identity index derived from the snapshot and Schema. */
   readonly entities: EntityIndex
 }
 

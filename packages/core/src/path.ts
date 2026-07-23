@@ -11,22 +11,46 @@ export type TreePathSegment = string | number
  */
 export type TreePath = readonly TreePathSegment[]
 
+/** Resolves the value addressed by a tuple path at the type level. */
+export type TreePathValue<
+  Value,
+  Path extends TreePath,
+> = Path extends readonly []
+  ? Value
+  : Path extends readonly [infer Head, ...infer Tail]
+    ? Head extends keyof Value
+      ? TreePathValue<Value[Head], Extract<Tail, TreePath>>
+      : Head extends number
+        ? Value extends ReadonlyArray<infer Item>
+          ? TreePathValue<Item, Extract<Tail, TreePath>>
+          : never
+        : never
+    : never
+
+/** Reasons an RFC 6901 JSON Pointer cannot be decoded. */
 export type JsonPointerDecodeFailureReason = 'InvalidPointer' | 'InvalidEscape'
 
+/** Structured, non-throwing JSON Pointer decoding failure. */
 export interface JsonPointerDecodeError {
+  /** Discriminant for JSON Pointer decoding failure. */
   readonly _tag: 'JsonPointerDecodeError'
+  /** Original pointer supplied to the decoder. */
   readonly pointer: string
+  /** Pointer grammar rule that failed. */
   readonly reason: JsonPointerDecodeFailureReason
   /** Character offset in the original pointer at which decoding failed. */
   readonly at: number
+  /** Human-readable decoding failure. */
   readonly message: string
 }
 
+/** Result of decoding an RFC 6901 pointer into a tuple path. */
 export type JsonPointerDecodeResult = Result.Result<
   TreePath,
   JsonPointerDecodeError
 >
 
+/** Controls how numeric-looking JSON Pointer tokens become path segments. */
 export interface JsonPointerDecodeOptions {
   /**
    * How decoded JSON Pointer tokens should represent array indexes.
@@ -146,6 +170,7 @@ export const jsonPointerToPath = (
   return Result.succeed(path)
 }
 
+/** Reasons safe tuple-path traversal can fail. */
 export type GetAtPathFailureReason =
   | 'InvalidArrayIndex'
   | 'ExpectedArray'
@@ -163,6 +188,7 @@ interface GetAtPathFailureBase {
   readonly traversed: TreePath
 }
 
+/** Structured failure returned by safe tuple-path traversal. */
 export type GetAtPathFailure =
   | (GetAtPathFailureBase & {
       readonly reason:
@@ -176,6 +202,7 @@ export type GetAtPathFailure =
       readonly cause: unknown
     })
 
+/** Result of resolving an unknown value at a tuple path without throwing. */
 export type GetAtPathResult = Result.Result<unknown, GetAtPathFailure>
 
 const isTraversable = (value: unknown): value is object =>

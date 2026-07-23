@@ -6,11 +6,13 @@
   "tags": ["scope:effect-state-tree", "type:producer"],
   "targets": {
     "build": {
-      "executor": "nx:noop",
-      "dependsOn": ["^build", { "projects": "self", "target": "build:types" }]
+      "executor": "nx:run-commands",
+      "options": {
+        "color": true,
+        "command": "rslib build --config ../../rslib.config.ts",
+        "cwd": "{projectRoot}"
+      }
     },
-    "build:js": {},
-    "build:types": {},
     "format": {},
     "format:check": {},
     "lint": {},

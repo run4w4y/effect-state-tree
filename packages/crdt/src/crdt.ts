@@ -43,8 +43,11 @@ export const CrdtSkipTag = 'crdt.skip' as const
 
 /** Optional backend-native causal metadata retained on inbound commits. */
 export interface CausalMetadata {
+  /** Backend-native logical or Lamport clock. */
   readonly clock?: unknown
+  /** Backend-native peer or actor identifier. */
   readonly peer?: string
+  /** Backend-native version vector or equivalent causal frontier. */
   readonly vector?: unknown
 }
 
@@ -56,7 +59,9 @@ export interface CausalMetadata {
  * delayed observer payload from overwriting newer local or remote operations.
  */
 export interface InboundCrdtNotification {
+  /** Provenance token identifying the adapter that observed the change. */
   readonly source: SourceToken
+  /** Optional backend-native causality retained on the resulting commit. */
   readonly causality?: CausalMetadata
 }
 
@@ -66,19 +71,25 @@ export interface CrdtAdapter<
   E = never,
   R = never,
 > {
+  /** Compiled tree Schema used for document encoding and decoding. */
   readonly spec: TreeSpec<S>
+  /** Adapter provenance token used to suppress its own inbound commits. */
   readonly source: SourceToken
   /** Completes only after the document observer has been installed. */
   readonly ready: Effect.Effect<void, E, R>
+  /** Backend notifications that cause the coordinator to reread the document. */
   readonly changes: Stream.Stream<InboundCrdtNotification, E, R>
   /** Reads the current authoritative document value. */
   readonly readSnapshot: Effect.Effect<TreeValue<S>, E, R>
+  /** Replaces the authoritative document with one complete tree snapshot. */
   readonly writeSnapshot: (snapshot: TreeValue<S>) => Effect.Effect<void, E, R>
+  /** Applies one local tree commit using semantic operations when possible. */
   readonly applyCommit: (commit: ChangeEnvelope<S>) => Effect.Effect<void, E, R>
 }
 
 /** Direction of initial synchronization when attaching a binding. */
 export type CrdtInitialization = 'backend' | 'store' | 'none'
+/** Supervised worker whose failure terminated a live CRDT binding. */
 export type CrdtWorker = 'inbound' | 'coordinator'
 
 /** Describes the first terminal failure of a supervised CRDT worker. */
@@ -103,7 +114,9 @@ export type CrdtBindingHealth<E> =
 
 /** Supervised handle for serialized inbound and outbound CRDT coordination. */
 export interface CrdtBinding<E = never> {
+  /** Supervised worker receiving backend notifications. */
   readonly inbound: Fiber.Fiber<void, unknown>
+  /** Supervised worker serializing local and inbound synchronization. */
   readonly coordinator: Fiber.Fiber<void, unknown>
   /** Waits until both workers and the adapter observer are installed. */
   readonly ready: Effect.Effect<void, CrdtBindingError<E>>
@@ -113,7 +126,9 @@ export interface CrdtBinding<E = never> {
   readonly failure: Effect.Effect<CrdtBindingError<E>>
   /** Waits for graceful shutdown or fails with the terminal worker error. */
   readonly await: Effect.Effect<void, CrdtBindingError<E>>
+  /** Reads the current supervised lifecycle state. */
   readonly health: Effect.Effect<CrdtBindingHealth<E>>
+  /** Idempotently stops workers, subscriptions, and adapter observation. */
   readonly shutdown: Effect.Effect<void>
 }
 

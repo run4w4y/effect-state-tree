@@ -16,29 +16,47 @@ export type FoldkitSourceToken = string | symbol | object
 
 /** All non-state inputs required to construct a deterministic commit. */
 export interface FoldkitCommitContext {
+  /** Stable identifier assigned to the commit before reduction. */
   readonly transactionId: string
+  /** Timestamp supplied by the caller for deterministic replay. */
   readonly committedAt: number
+  /** Optional human-readable operation label. */
   readonly label?: string
+  /** Optional application-defined commit metadata. */
   readonly metadata?: unknown
+  /** Optional provenance token used by integrations for echo suppression. */
   readonly source?: FoldkitSourceToken
+  /** Optional plugin policy tags attached to the commit. */
   readonly tags?: Iterable<string>
 }
 
-/** Runtime-neutral commit protocol shared by Foldkit plugin reducers. */
 /** Runtime-neutral committed transition passed to pure plugin reducers. */
 export interface FoldkitTreeCommit<S extends Schema.Constraint> {
+  /** Stable identifier copied from the originating message context. */
   readonly transactionId: string
+  /** Tree revision observed before the transition. */
   readonly revisionBefore: number
+  /** Tree revision produced by the transition. */
   readonly revisionAfter: number
+  /** Canonical tree snapshot before the transition. */
   readonly before: TreeValue<S>
+  /** Canonical tree snapshot after the transition. */
   readonly after: TreeValue<S>
+  /** Forward, inverse, and semantic operations describing the transition. */
   readonly change: ChangeSet
+  /** Paths affected by the committed patches. */
   readonly touchedPaths: ReadonlyArray<TreePath>
+  /** Normalized plugin policy tags attached to the transition. */
   readonly tags: HashSet.HashSet<string>
+  /** Deterministic commit timestamp supplied by the caller. */
   readonly committedAt: number
+  /** Whether the message originated locally or from an external source. */
   readonly direction: 'local' | 'external'
+  /** Optional human-readable operation label. */
   readonly label?: string
+  /** Optional application-defined commit metadata. */
   readonly metadata?: unknown
+  /** Optional provenance token retained from the message context. */
   readonly source?: FoldkitSourceToken
 }
 
@@ -47,8 +65,11 @@ export interface FoldkitTreeState<
   S extends Schema.Constraint,
   PluginState = never,
 > {
+  /** Current canonical tree snapshot. */
   readonly tree: TreeValue<S>
+  /** Monotonic revision incremented after each committed transition. */
   readonly revision: number
+  /** State owned by the configured pure plugin reducer. */
   readonly plugin: PluginState
 }
 
@@ -77,8 +98,11 @@ export type FoldkitTreeMessage<S extends Schema.Constraint> =
 
 /** Plugin state plus Commands and OutMessages emitted by one pure reduction. */
 export interface FoldkitPluginReduction<State, Command, OutMessage> {
+  /** Next plugin state. */
   readonly state: State
+  /** Effect commands requested by the plugin reduction. */
   readonly commands: ReadonlyArray<Command>
+  /** Messages emitted from the tree feature to its parent feature. */
   readonly outMessages: ReadonlyArray<OutMessage>
 }
 
@@ -89,7 +113,9 @@ export interface FoldkitCommitReducer<
   Command = never,
   OutMessage = never,
 > {
+  /** Initial plugin state stored alongside the tree. */
   readonly initial: State
+  /** Purely reduces one committed tree transition into plugin outputs. */
   readonly reduce: (
     state: State,
     commit: FoldkitTreeCommit<S>
@@ -124,7 +150,9 @@ export interface FoldkitTreeFeature<
   Command,
   OutMessage,
 > {
+  /** Initial tree, revision, and plugin state for the Foldkit Model. */
   readonly initial: FoldkitTreeState<S, PluginState>
+  /** Deterministically reduces a tree message against the current state. */
   readonly update: (
     state: FoldkitTreeState<S, PluginState>,
     message: FoldkitTreeMessage<S>
@@ -269,6 +297,7 @@ export interface FoldkitSubmodel<
   ParentCommand,
   ParentOutMessage,
 > {
+  /** Reduces a child tree message and lifts its outputs into the parent Model. */
   readonly update: (
     parent: Parent,
     message: FoldkitTreeMessage<S>
@@ -285,9 +314,13 @@ export interface FoldkitSubmodelResult<
   OutMessage,
   S extends Schema.Constraint,
 > {
+  /** Updated parent Model. */
   readonly parent: Parent
+  /** Child commands mapped into the parent command type. */
   readonly commands: ReadonlyArray<Command>
+  /** Child outward messages mapped into the parent message type. */
   readonly outMessages: ReadonlyArray<OutMessage>
+  /** Commit produced by the child update, absent for a no-op. */
   readonly commit?: FoldkitTreeCommit<S>
 }
 

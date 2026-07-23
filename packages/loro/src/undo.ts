@@ -5,6 +5,7 @@ import { LoroUndoError } from './errors'
 
 /** Peer-local intention undo backed by Loro's current-peer UndoManager. */
 export interface LoroUndoController extends CrdtUndoController<LoroUndoError> {
+  /** Native Loro undo manager owned by this controller. */
   readonly manager: UndoManager
 }
 

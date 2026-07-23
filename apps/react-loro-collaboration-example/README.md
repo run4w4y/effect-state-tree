@@ -7,8 +7,8 @@ Alice/Bob pair and no manual synchronization button.
 
 It demonstrates:
 
-- React bindings derived from the original `BoardTree` definition;
-- context-resolved actions with no store arguments;
+- stable tree atoms consumed through Effect's official React Atom binding;
+- context-resolved tree updates with no store arguments;
 - native Loro movable-list and collaborative-text operations;
 - automatic WebSocket reconnect with offline local editing;
 - late peers joining from the room's authoritative Loro history;
@@ -16,7 +16,7 @@ It demonstrates:
 - universal patches and semantic operations in the commit feed;
 - Loro peer-local intention undo and redo.
 
-Start the room server and Vite client in separate terminals:
+Start the room server and Rsbuild client in separate terminals:
 
 ```sh
 bun x nx run @effect-state-tree/react-loro-collaboration-example:dev:server

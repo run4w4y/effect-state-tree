@@ -40,23 +40,33 @@ export type MutableTree<A> = ImmerDraft<A>
 
 /** Universal patches plus optional backend-fidelity operation intent. */
 export interface ChangeSet {
+  /** Universal forward and inverse tree patches. */
   readonly patches: PatchSet
+  /** Intent-preserving operations corresponding to forward patches. */
   readonly operations: ReadonlyArray<SemanticOperation>
+  /** Intent-preserving operations corresponding to inverse patches. */
   readonly inverseOperations: ReadonlyArray<SemanticOperation>
 }
 
 /** Immutable snapshot and change log produced by one successful recipe. */
 export interface ProducedChange<A> {
+  /** Immutable snapshot produced by the recipe. */
   readonly snapshot: A
+  /** Universal patches and optional semantic intent. */
   readonly change: ChangeSet
+  /** Tuple paths affected by the produced patch batch. */
   readonly touchedPaths: ReadonlyArray<TreePath>
 }
 
 /** Invalid explicit semantic operation attempted by a recipe. */
 export interface ProducerOperationError {
+  /** Discriminant for an invalid explicit semantic operation. */
   readonly _tag: 'ProducerOperationError'
+  /** Explicit operation rejected by the producer. */
   readonly operation: SemanticOperation['_tag']
+  /** Target path supplied to the operation. */
   readonly path: TreePath
+  /** Operation precondition that failed. */
   readonly reason:
     | 'wrong-target'
     | 'out-of-bounds'

@@ -26,12 +26,17 @@ export interface PersistenceStorage<
   E = never,
   R = never,
 > {
+  /** Stable provenance token used to suppress persistence echoes. */
   readonly source: SourceToken
+  /** Loads the current untrusted encoded value when one exists. */
   readonly load: Effect.Effect<Option.Option<unknown>, E, R>
+  /** Durably writes one encoded persistence envelope. */
   readonly save: (encoded: Encoded) => Effect.Effect<void, E, R>
+  /** Removes persisted state when the backend supports deletion. */
   readonly remove?: Effect.Effect<void, E, R>
 }
 
+/** Namespace and codec options for Effect KeyValueStore persistence. */
 export interface KeyValueStorageOptions {
   /** Provenance token used to suppress persistence echo writes. */
   readonly source?: SourceToken

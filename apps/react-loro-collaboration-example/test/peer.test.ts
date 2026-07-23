@@ -138,8 +138,11 @@ describe('collaboration peer', () => {
     await Effect.runPromise(
       Effect.all(
         [
-          runFor(alice, moveCard('architecture', 2)),
-          runFor(bob, renameCard('architecture', 'Moved and renamed')),
+          runFor(alice, moveCard({ id: 'architecture', offset: 2 })),
+          runFor(
+            bob,
+            renameCard({ id: 'architecture', title: 'Moved and renamed' })
+          ),
           runFor(carol, appendNote('Three real peers. ')),
         ],
         { concurrency: 'unbounded' }

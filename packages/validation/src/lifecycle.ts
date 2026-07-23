@@ -6,12 +6,17 @@ import {
 } from '@effect-state-tree/core'
 import { Schema, type SchemaAST } from 'effect'
 
+/** Parse-option key carrying the active tree validation lifecycle phase. */
 export const ValidationPhaseOption = TreeValidationPhaseOption
+/** Parse-option key selecting admission or diagnostic Schema interpretation. */
 export const ValidationModeOption = TreeValidationModeOption
+/** Effect Schema annotation key carrying lifecycle check policy. */
 export const LifecyclePolicyAnnotation =
   '@effect-state-tree/lifecycle-policy' as const
+/** Effect Schema annotation key carrying a stable diagnostic code. */
 export const ValidationCodeAnnotation =
   '@effect-state-tree/validation-code' as const
+/** Effect Schema annotation key carrying diagnostic severity. */
 export const ValidationSeverityAnnotation =
   '@effect-state-tree/validation-severity' as const
 
@@ -52,9 +57,13 @@ declare module 'effect/Schema' {
 
 /** Stable diagnostics metadata and per-phase behavior for a Schema filter. */
 export interface LifecycleCheckOptions {
+  /** Stable machine-readable diagnostic code. */
   readonly code: string
+  /** User-facing diagnostic severity; defaults to `error`. */
   readonly severity?: ValidationSeverity
+  /** Per-lifecycle reject, report, or skip behavior. */
   readonly policy?: LifecyclePolicy
+  /** Optional expected-value description retained by Effect Schema. */
   readonly expected?: string
 }
 

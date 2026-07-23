@@ -33,11 +33,15 @@ import {
 import type { PersistedEnvelope, PersistenceStorage } from './storage'
 import { PersistedEnvelopeSchema } from './storage'
 
+/** Commit tag applied when persisted state initializes the live tree. */
 export const PersistenceInboundTag = 'persistence.inbound' as const
+/** Commit tag preventing a transition from being written to storage. */
 export const PersistenceSkipTag = 'persistence.skip' as const
 
+/** Direction of initial synchronization when attaching persistence. */
 export type PersistenceInitialization = 'storage' | 'store' | 'none'
 
+/** Failures possible while loading, migrating, and decoding persisted state. */
 export type PersistenceReadError<E, MigrationError> =
   | E
   | MigrationError
@@ -47,8 +51,10 @@ export type PersistenceReadError<E, MigrationError> =
   | PersistenceVersionError
   | PersistenceDecodeError
 
+/** Failures possible while encoding and writing the current tree snapshot. */
 export type PersistenceWriteError<E> = E | PersistenceEncodeError
 
+/** Failures reported when draining an ordered persistence writer. */
 export type PersistenceFlushError<E> =
   | PersistenceWriteError<E>
   | PersistenceBindingClosedError
@@ -61,13 +67,17 @@ export type PersistenceFlushError<E> =
  * keeps legacy formats explicit without weakening the canonical tree Schema.
  */
 export interface PersistenceMigration<E = never, R = never> {
+  /** Stored format version accepted by this migration. */
   readonly from: number
+  /** Stored format version emitted by this migration. */
   readonly to: number
+  /** Decodes the old payload and emits the next version's encoded payload. */
   readonly migrate: (
     encoded: unknown
   ) => Effect.Effect<unknown, E | PersistenceMigrationDecodeError, R>
 }
 
+/** Inputs used to construct one typed persistence migration. */
 export interface MakePersistenceMigrationOptions<S extends Schema.Top, E, R> {
   /** Version understood by the migration input Schema. */
   readonly from: number
@@ -137,6 +147,7 @@ export interface PersistenceBinding<E> {
   readonly abort: Effect.Effect<void>
 }
 
+/** Initialization, migration, and echo-suppression policy for persistence. */
 export interface BindPersistenceOptions<
   MigrationError = never,
   MigrationRequirements = never,

@@ -1,23 +1,37 @@
 import { describe, expect, it } from 'bun:test'
 import { makeTreeSpec } from '@effect-state-tree/core'
-import { makeTreeStore } from '@effect-state-tree/runtime'
-import { Deferred, Effect, Layer, Schema } from 'effect'
-import { Atom, AtomRegistry } from 'effect/unstable/reactivity'
-import { atomCommand, atomFromTreeSelector } from '../src/index'
+import { defineTree, makeTreeStore } from '@effect-state-tree/runtime'
+import { Context, Effect, Layer, Schema } from 'effect'
+import { AtomRegistry } from 'effect/unstable/reactivity'
+import {
+  atomFromTreeSelector,
+  makeTreeAtoms,
+  makeTreeAtomsWithLayer,
+} from '../src/index'
 
 const State = Schema.Struct({ count: Schema.Number })
 const spec = makeTreeSpec(State)
+const StateTree = defineTree('@effect-state-tree/atom-test/State', spec)
+const increment = StateTree.update(
+  (state, amount: number) => {
+    state.count += amount
+  },
+  (amount) => ({ label: `Increment by ${amount}` })
+)
+
+const makeRegistry = (): AtomRegistry.AtomRegistry =>
+  AtomRegistry.make({
+    scheduleTask: (task) => {
+      task()
+      return () => undefined
+    },
+  })
 
 describe('Effect Atom adapter', () => {
   it('exposes a read-only atom that follows a selected StoreView', async () => {
     const store = await Effect.runPromise(makeTreeStore(spec, { count: 0 }))
     const atom = atomFromTreeSelector(store, (state) => state.count)
-    const registry = AtomRegistry.make({
-      scheduleTask: (task) => {
-        task()
-        return () => undefined
-      },
-    })
+    const registry = makeRegistry()
     const values: Array<number> = []
     const unsubscribe = registry.subscribe(
       atom,
@@ -39,62 +53,61 @@ describe('Effect Atom adapter', () => {
     registry.dispose()
   })
 
-  it('maps merge execution to Atom concurrent commands', async () => {
-    const firstStarted = Deferred.makeUnsafe<void>()
-    const secondStarted = Deferred.makeUnsafe<void>()
-    const firstRelease = Deferred.makeUnsafe<void>()
-    const secondRelease = Deferred.makeUnsafe<void>()
-    const firstCompleted = Deferred.makeUnsafe<void>()
-    const secondCompleted = Deferred.makeUnsafe<void>()
-    const firstInterrupted = Deferred.makeUnsafe<void>()
-    const runtime = Atom.runtime(Layer.empty)
-    const command = atomCommand(
-      runtime,
-      (name: 'first' | 'second') =>
-        Deferred.succeed(
-          name === 'first' ? firstStarted : secondStarted,
-          undefined
-        ).pipe(
-          Effect.andThen(
-            Deferred.await(name === 'first' ? firstRelease : secondRelease)
-          ),
-          Effect.andThen(
-            Deferred.succeed(
-              name === 'first' ? firstCompleted : secondCompleted,
-              undefined
-            )
-          ),
-          Effect.onInterrupt(() =>
-            name === 'first'
-              ? Deferred.succeed(firstInterrupted, undefined)
-              : Effect.void
-          )
-        ),
-      { execution: 'merge' }
+  it('provides the tree service to native Atom function actions', async () => {
+    const store = await Effect.runPromise(StateTree.make({ count: 1 }))
+    const atoms = makeTreeAtoms(StateTree, store)
+    const count = atoms.select((state) => state.count, { paths: [['count']] })
+    const incrementAtom = atoms.fn(increment)
+    const registry = makeRegistry()
+    const unmountCount = registry.mount(count)
+    const unmountIncrement = registry.mount(incrementAtom)
+
+    registry.set(incrementAtom, 4)
+    const result = await Effect.runPromise(
+      AtomRegistry.getResult(registry, incrementAtom, {
+        suspendOnWaiting: true,
+      })
     )
-    const registry = AtomRegistry.make({
-      scheduleTask: (task) => {
-        task()
-        return () => undefined
-      },
-    })
-    const unsubscribe = registry.subscribe(command, () => undefined, {
-      immediate: true,
-    })
 
-    registry.set(command, 'first')
-    await Effect.runPromise(Deferred.await(firstStarted))
-    registry.set(command, 'second')
-    await Effect.runPromise(Deferred.await(secondStarted))
-    expect(Deferred.isDoneUnsafe(firstInterrupted)).toBe(false)
+    expect(result._tag).toBe('Committed')
+    expect(registry.get(count)).toBe(5)
+    expect(store.getSnapshot()).toEqual({ count: 5 })
+    unmountIncrement()
+    unmountCount()
+    registry.dispose()
+  })
 
-    Deferred.doneUnsafe(secondRelease, Effect.void)
-    await Effect.runPromise(Deferred.await(secondCompleted))
-    expect(Deferred.isDoneUnsafe(firstCompleted)).toBe(false)
-    Deferred.doneUnsafe(firstRelease, Effect.void)
-    await Effect.runPromise(Deferred.await(firstCompleted))
+  it('merges application services into the tree Atom runtime', async () => {
+    class Prefix extends Context.Service<Prefix, string>()(
+      '@effect-state-tree/atom-test/Prefix'
+    ) {}
 
-    unsubscribe()
+    const store = await Effect.runPromise(StateTree.make({ count: 0 }))
+    const atoms = makeTreeAtomsWithLayer(
+      StateTree,
+      store,
+      Layer.succeed(Prefix, 'count')
+    )
+    const describeCount = atoms.fn((suffix: string) =>
+      Effect.gen(function* () {
+        const prefix = yield* Prefix
+        const tree = yield* StateTree.service
+        return `${prefix}:${tree.getSnapshot().count}:${suffix}`
+      })
+    )
+    const registry = makeRegistry()
+    const unmount = registry.mount(describeCount)
+
+    registry.set(describeCount, 'ready')
+
+    expect(
+      await Effect.runPromise(
+        AtomRegistry.getResult(registry, describeCount, {
+          suspendOnWaiting: true,
+        })
+      )
+    ).toBe('count:0:ready')
+    unmount()
     registry.dispose()
   })
 })

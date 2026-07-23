@@ -1,4 +1,8 @@
 import {
+  guardPageErrors,
+  type PageErrorGuard,
+} from '@effect-state-tree/test-infrastructure'
+import {
   type Browser,
   type BrowserContext,
   expect,
@@ -6,11 +10,6 @@ import {
   test,
   type WebSocketRoute,
 } from '@playwright/test'
-
-import {
-  guardPageErrors,
-  type PageErrorGuard,
-} from '../../../tools/playwright/page-errors'
 
 const frontendUrl = 'http://127.0.0.1:4314'
 const expectedOfflinePages = new WeakSet<Page>()

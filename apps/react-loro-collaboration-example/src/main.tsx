@@ -1,7 +1,9 @@
+import { RegistryProvider } from '@effect/atom-react'
 import { Effect } from 'effect'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { makeCollaborationAtoms } from './client/atoms'
 import { makeCollaborationPeer } from './client/peer'
 import { App } from './components/App'
 import './global.css'
@@ -23,11 +25,14 @@ if (existingPeerId === undefined || existingPeerId.length === 0) {
 const peer = await Effect.runPromise(
   makeCollaborationPeer({ roomId, peerId, name: peerId })
 )
+const atoms = makeCollaborationAtoms(peer)
 const root = createRoot(rootElement)
 
 root.render(
   <StrictMode>
-    <App peer={peer} />
+    <RegistryProvider>
+      <App atoms={atoms} peer={peer} />
+    </RegistryProvider>
   </StrictMode>
 )
 
@@ -36,7 +41,7 @@ const shutdown = (): void => {
 }
 
 window.addEventListener('beforeunload', shutdown, { once: true })
-import.meta.hot?.dispose(() => {
+import.meta.webpackHot?.dispose(() => {
   window.removeEventListener('beforeunload', shutdown)
   root.unmount()
   shutdown()

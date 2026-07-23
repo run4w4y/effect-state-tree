@@ -44,11 +44,11 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: `vite --config vite.config.ts --host 127.0.0.1 --port ${frontendPort}`,
+      command: `rsbuild dev --config rsbuild.config.ts --host 127.0.0.1 --port ${frontendPort}`,
       cwd: projectRoot,
       env: {
         ...process.env,
-        VITE_TODO_API_URL: `http://127.0.0.1:${apiPort}`,
+        PUBLIC_TODO_API_URL: `http://127.0.0.1:${apiPort}`,
       },
       url: `http://127.0.0.1:${frontendPort}`,
       reuseExistingServer: process.env.CI !== 'true',

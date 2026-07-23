@@ -9,7 +9,7 @@
       "executor": "nx:run-commands",
       "options": {
         "color": true,
-        "command": "vite build --config vite.config.ts",
+        "command": "rsbuild build --config rsbuild.config.ts",
         "cwd": "apps/react-loro-collaboration-example"
       }
     },
@@ -17,7 +17,7 @@
       "executor": "nx:run-commands",
       "options": {
         "color": true,
-        "command": "vite --config vite.config.ts",
+        "command": "rsbuild dev --config rsbuild.config.ts",
         "cwd": "apps/react-loro-collaboration-example"
       }
     },
@@ -35,7 +35,7 @@
       "dependsOn": [{ "projects": "self", "target": "build" }],
       "options": {
         "color": true,
-        "command": "vite preview --config vite.config.ts",
+        "command": "rsbuild preview --config rsbuild.config.ts",
         "cwd": "apps/react-loro-collaboration-example"
       }
     },

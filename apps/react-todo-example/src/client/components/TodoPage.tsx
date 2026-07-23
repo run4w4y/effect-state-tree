@@ -1,20 +1,10 @@
-import {
-  useStoreView,
-  useTreeCommand,
-  useTreeSelector,
-} from '@effect-state-tree/react'
+import { useAtom, useAtomValue } from '@effect/atom-react'
+import type { DraftSynchronizationResult } from '@effect-state-tree/draft'
 import * as stylex from '@stylexjs/stylex'
 import { AsyncResult } from 'effect/unstable/reactivity'
 import { useState } from 'react'
-
-import {
-  selectRemaining,
-  selectTotal,
-  selectVersion,
-  todoCountOptions,
-} from '../state/selectors'
-import { TodoReact } from '../state/todo-tree'
-import type { TodoWorkspace } from '../state/workspace'
+import type { TodoDocument } from '../../shared/todo'
+import type { TodoAtoms } from '../state/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
 import { Button } from './Button'
@@ -117,27 +107,31 @@ const styles = stylex.create({
   },
 })
 
-export const TodoPage = ({
-  workspace,
-}: {
-  readonly workspace: TodoWorkspace
-}) => {
+const synchronizationMessage = (
+  operation: 'Saved' | 'Reloaded',
+  result: DraftSynchronizationResult<TodoDocument>
+): string => {
+  switch (result._tag) {
+    case 'Accepted':
+      return `${operation} and reconciled server version ${result.authoritative.version}.`
+    case 'AcceptedWithPendingChanges':
+      return `${operation} server version ${result.authoritative.version}; newer local changes remain in the draft.`
+    case 'Superseded':
+      return `${operation} response was superseded by a newer authoritative change.`
+  }
+}
+
+export const TodoPage = ({ atoms }: { readonly atoms: TodoAtoms }) => {
   const [selectedTodoId, setSelectedTodoId] = useState<string | undefined>()
-  const total = TodoReact.useSelector(selectTotal, todoCountOptions)
-  const remaining = TodoReact.useSelector(selectRemaining, todoCountOptions)
-  const draftVersion = TodoReact.useSelector(selectVersion, {
-    paths: [['document', 'version']],
-  })
-  const originalVersion = useTreeSelector(
-    workspace.original,
-    (state) => state.document.version,
-    { paths: [['document', 'version']] }
-  )
-  const validation = useStoreView(workspace.validation)
-  const save = useTreeCommand(() => workspace.save)
-  const reload = useTreeCommand(() => workspace.reload)
-  const reset = useTreeCommand(() => workspace.reset)
-  const dirty = workspace.isDirty()
+  const total = useAtomValue(atoms.total)
+  const remaining = useAtomValue(atoms.remaining)
+  const draftVersion = useAtomValue(atoms.draftVersion)
+  const originalVersion = useAtomValue(atoms.originalVersion)
+  const validation = useAtomValue(atoms.validation)
+  const dirty = useAtomValue(atoms.dirty)
+  const [saveResult, save] = useAtom(atoms.actions.save)
+  const [reloadResult, reload] = useAtom(atoms.actions.reload)
+  const [resetResult, reset] = useAtom(atoms.actions.reset)
   const errorCount = validation.issues.filter(
     (issue) => issue.severity === 'error'
   ).length
@@ -163,25 +157,25 @@ export const TodoPage = ({
         </div>
         <div {...stylex.props(styles.heroActions)}>
           <Button
-            disabled={!dirty || reset.result.waiting}
-            onClick={() => reset.run()}
+            disabled={!dirty || resetResult.waiting}
+            onClick={() => reset(undefined)}
             tone="ghost"
           >
             Reset draft
           </Button>
           <Button
-            disabled={dirty || reload.result.waiting}
-            onClick={() => reload.run()}
+            disabled={dirty || reloadResult.waiting}
+            onClick={() => reload(undefined)}
             tone="secondary"
           >
-            {reload.result.waiting ? 'Reloading…' : 'Reload server'}
+            {reloadResult.waiting ? 'Reloading…' : 'Reload server'}
           </Button>
           <Button
-            disabled={!dirty || errorCount > 0 || save.result.waiting}
-            onClick={() => save.run()}
+            disabled={!dirty || errorCount > 0 || saveResult.waiting}
+            onClick={() => save(undefined)}
             tone="primary"
           >
-            {save.result.waiting ? 'Saving…' : 'Save to server'}
+            {saveResult.waiting ? 'Saving…' : 'Save to server'}
           </Button>
         </div>
       </header>
@@ -208,14 +202,19 @@ export const TodoPage = ({
           fixed before saving.
         </StatusBanner>
       )}
-      {AsyncResult.isSuccess(save.result) && !save.result.waiting && (
+      {AsyncResult.isSuccess(saveResult) && !saveResult.waiting && (
         <StatusBanner tone="success">
-          Saved and reconciled server version {save.result.value.version}.
+          {synchronizationMessage('Saved', saveResult.value)}
         </StatusBanner>
       )}
-      <AsyncFailure result={save.result} />
-      <AsyncFailure result={reload.result} />
-      <AsyncFailure result={reset.result} />
+      {AsyncResult.isSuccess(reloadResult) && !reloadResult.waiting && (
+        <StatusBanner tone="success">
+          {synchronizationMessage('Reloaded', reloadResult.value)}
+        </StatusBanner>
+      )}
+      <AsyncFailure result={saveResult} />
+      <AsyncFailure result={reloadResult} />
+      <AsyncFailure result={resetResult} />
 
       <div
         {...stylex.props(
@@ -224,17 +223,17 @@ export const TodoPage = ({
         )}
       >
         <div {...stylex.props(styles.card)}>
-          <TodoComposer />
+          <TodoComposer atoms={atoms} />
           <section {...stylex.props(styles.section, styles.divider)}>
-            <TodoToolbar workspace={workspace} />
-            <TodoList onEdit={setSelectedTodoId} />
+            <TodoToolbar atoms={atoms} />
+            <TodoList atoms={atoms} onEdit={setSelectedTodoId} />
           </section>
         </div>
         {selectedTodoId !== undefined && (
           <TodoEditor
+            atoms={atoms}
             id={selectedTodoId}
             onClose={() => setSelectedTodoId(undefined)}
-            workspace={workspace}
           />
         )}
       </div>

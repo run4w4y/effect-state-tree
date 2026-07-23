@@ -9,7 +9,9 @@ import type {
 
 /** Result of reducing one commit through a portable plugin state machine. */
 export interface ReducedPluginState<State, Command> {
+  /** Plugin state after reducing the commit. */
   readonly state: State
+  /** Commands emitted by the pure reduction. */
   readonly commands: ReadonlyArray<Command>
 }
 
@@ -29,16 +31,23 @@ export interface CommitReducerController<
   S extends Schema.Constraint,
   Command,
 > extends StoreView<State> {
+  /** Replaces controller state and notifies subscribers when it changed. */
   readonly setState: (state: State) => void
+  /** Reduces one commit, updates state, and returns emitted commands. */
   readonly dispatch: (commit: ChangeEnvelope<S>) => ReadonlyArray<Command>
+  /** Stops observing the tree store. */
   readonly dispose: () => void
 }
 
 /** Notification and command-delivery policy for a live reducer controller. */
 export interface CommitReducerControllerOptions<State, Command> {
+  /** Overrides the reducer's initial state. */
   readonly initial?: State
+  /** Equality used to suppress unchanged controller notifications. */
   readonly equals?: (left: State, right: State) => boolean
+  /** Receives non-empty command batches after a reduction. */
   readonly onCommands?: (commands: ReadonlyArray<Command>) => void
+  /** Receives exceptions thrown by synchronous subscribers. */
   readonly onListenerError?: (error: unknown) => void
 }
 

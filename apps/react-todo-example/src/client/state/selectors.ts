@@ -1,7 +1,7 @@
 import type { SelectOptions } from '@effect-state-tree/runtime'
 
 import type { Todo, TodoFilter } from '../../shared/todo'
-import type { TodoAppState } from './todo-tree'
+import type { TodoAppState } from './tree'
 
 export const selectFilter = (state: TodoAppState): TodoFilter => state.filter
 

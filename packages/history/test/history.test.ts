@@ -4,9 +4,11 @@ import { makeTreeStore } from '@effect-state-tree/runtime'
 import { Effect, Schema } from 'effect'
 import {
   groupHistory,
+  type HistoryController,
   HistoryGroupIds,
   historyGroupIdsFrom,
   makeHistory,
+  makeHistoryScoped,
   withoutHistory,
 } from '../src/index'
 
@@ -15,6 +17,32 @@ const spec = makeTreeSpec(State)
 const makeStore = () => makeTreeStore(spec, { count: 0 })
 
 describe('history plugin', () => {
+  it('stops observing commits when its surrounding Scope closes', async () => {
+    const store = await Effect.runPromise(makeStore())
+    let history: HistoryController<typeof State> | undefined
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          history = yield* makeHistoryScoped(store)
+          yield* store.update((state) => {
+            state.count = 1
+          })
+          expect(history.getState().undo).toHaveLength(1)
+        })
+      )
+    )
+
+    if (history === undefined) throw new Error('Expected scoped history')
+    await Effect.runPromise(
+      store.update((state) => {
+        state.count = 2
+      })
+    )
+    expect(history.getState().undo).toHaveLength(1)
+    await Effect.runPromise(store.shutdown)
+  })
+
   it('supports undo, redo, grouping, skipping, and redo clearing', async () => {
     const store = await Effect.runPromise(makeStore())
     const history = makeHistory(store)
@@ -113,6 +141,38 @@ describe('history plugin', () => {
       'group-1',
       'group-2',
     ])
+    history.dispose()
+  })
+
+  it('resets at an ordered baseline without erasing later commits', async () => {
+    const store = await Effect.runPromise(makeStore())
+    const history = makeHistory(store, { baselineTags: ['document.baseline'] })
+
+    await Effect.runPromise(
+      store.update((state) => {
+        state.count = 1
+      })
+    )
+    expect(history.canUndo()).toBe(true)
+
+    await Effect.runPromise(
+      store.update(
+        (state) => {
+          state.count = 10
+        },
+        { tags: ['document.baseline'] }
+      )
+    )
+    expect(history.canUndo()).toBe(false)
+
+    await Effect.runPromise(
+      store.update((state) => {
+        state.count = 11
+      })
+    )
+    expect(history.canUndo()).toBe(true)
+    await Effect.runPromise(history.undo)
+    expect(store.getSnapshot().count).toBe(10)
     history.dispose()
   })
 })

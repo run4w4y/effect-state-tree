@@ -17,8 +17,11 @@ export const DevtoolsTimeTravelTag = 'devtools.time-travel' as const
 
 /** Immutable timeline anchored at the revision where recording began. */
 export interface DevtoolsState<S extends Schema.Constraint> {
+  /** Snapshot anchoring the earliest retained revision. */
   readonly initial: TreeValue<S>
+  /** Revision represented by `initial`. */
   readonly initialRevision: number
+  /** Committed transitions retained after the anchor. */
   readonly entries: ReadonlyArray<ChangeEnvelope<S>>
 }
 
@@ -73,18 +76,23 @@ export class DevtoolsRevisionError extends Data.TaggedError(
 /** Live timeline StoreView with non-recording time travel and resume controls. */
 export interface DevtoolsController<S extends Schema.Constraint>
   extends StoreView<DevtoolsState<S>> {
+  /** Reads the current retained timeline synchronously. */
   readonly getState: () => DevtoolsState<S>
+  /** Replaces the tree with a retained revision without recording the change. */
   readonly travelTo: (
     revision: number
   ) => Effect.Effect<
     CommitResult<S>,
     TreePatchError | TreeStoreShutdownError | DevtoolsRevisionError
   >
+  /** Returns to the latest snapshot retained by the timeline. */
   readonly resume: Effect.Effect<
     CommitResult<S>,
     TreePatchError | TreeStoreShutdownError
   >
+  /** Re-anchors the timeline at the store's current snapshot and revision. */
   readonly clear: () => void
+  /** Stops recording store commits. */
   readonly dispose: () => void
 }
 

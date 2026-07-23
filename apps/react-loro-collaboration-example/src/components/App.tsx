@@ -1,6 +1,7 @@
 import * as stylex from '@stylexjs/stylex'
 
-import { BoardReact, type CollaborationPeer } from '../client/peer'
+import type { CollaborationAtoms } from '../client/atoms'
+import type { CollaborationPeer } from '../client/peer'
 import { colors, spacing } from '../styles/tokens.stylex'
 import { BoardEditor } from './BoardEditor'
 import { ConnectionPanel } from './ConnectionPanel'
@@ -58,36 +59,40 @@ const styles = stylex.create({
   },
 })
 
-export const App = ({ peer }: { readonly peer: CollaborationPeer }) => (
-  <BoardReact.Provider store={peer.store}>
-    <main {...stylex.props(styles.shell)}>
-      <header {...stylex.props(styles.hero)}>
-        <div>
-          <span {...stylex.props(styles.eyebrow)}>
-            Effect Tree + Loro + Effect Socket
-          </span>
-          <h1 {...stylex.props(styles.heading)}>
-            One room. Any number of peers.
-          </h1>
-          <p {...stylex.props(styles.intro)}>
-            This page is one independent peer. Open another peer in a separate
-            browser context, edit offline, and reconnect. Loro transports native
-            list and text intent while the tree keeps universal patches.
-          </p>
-        </div>
-        <ConnectionPanel peer={peer} />
-      </header>
+export const App = ({
+  atoms,
+  peer,
+}: {
+  readonly atoms: CollaborationAtoms
+  readonly peer: CollaborationPeer
+}) => (
+  <main {...stylex.props(styles.shell)}>
+    <header {...stylex.props(styles.hero)}>
+      <div>
+        <span {...stylex.props(styles.eyebrow)}>
+          Effect Tree + Loro + Effect Socket
+        </span>
+        <h1 {...stylex.props(styles.heading)}>
+          One room. Any number of peers.
+        </h1>
+        <p {...stylex.props(styles.intro)}>
+          This page is one independent peer. Open another peer in a separate
+          browser context, edit offline, and reconnect. Loro transports native
+          list and text intent while the tree keeps universal patches.
+        </p>
+      </div>
+      <ConnectionPanel atoms={atoms} peer={peer} />
+    </header>
 
-      <BoardEditor peer={peer} />
+    <BoardEditor atoms={atoms} peer={peer} />
 
-      <footer {...stylex.props(styles.footer)}>
-        <span>Schema-described entities</span>
-        <span>Automatic reconnection</span>
-        <span>Native CRDT moves</span>
-        <span>Collaborative text</span>
-        <span>Echo suppression</span>
-        <span>Peer-local undo</span>
-      </footer>
-    </main>
-  </BoardReact.Provider>
+    <footer {...stylex.props(styles.footer)}>
+      <span>Schema-described entities</span>
+      <span>Automatic reconnection</span>
+      <span>Native CRDT moves</span>
+      <span>Collaborative text</span>
+      <span>Echo suppression</span>
+      <span>Peer-local undo</span>
+    </footer>
+  </main>
 )

@@ -1,5 +1,6 @@
 import { Data, type Schema } from 'effect'
 
+/** Schema boundary stage at which Yjs encoding or decoding failed. */
 export type YjsCodecStage =
   | 'encode-schema'
   | 'encode-json'
@@ -28,6 +29,7 @@ export class YjsMutationError extends Data.TaggedError('YjsMutationError')<{
   readonly cause: unknown
 }> {}
 
+/** Normalized failure raised by Yjs's peer-local undo manager. */
 export class YjsUndoError extends Data.TaggedError('YjsUndoError')<{
   readonly operation:
     | 'canUndo'
@@ -39,4 +41,5 @@ export class YjsUndoError extends Data.TaggedError('YjsUndoError')<{
   readonly cause: unknown
 }> {}
 
+/** Complete failure channel exposed by the Schema-coded Yjs adapter. */
 export type YjsAdapterError = YjsCodecError | YjsRootError | YjsMutationError

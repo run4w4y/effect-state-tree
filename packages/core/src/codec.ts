@@ -10,18 +10,27 @@ import {
 
 /** Schema navigation failure while resolving a patch-value codec. */
 export interface TreeCodecPathError {
+  /** Discriminant for Schema path-navigation failure. */
   readonly _tag: 'TreeCodecPathError'
+  /** Tuple path that could not be resolved. */
   readonly path: TreePath
+  /** Index of the first unresolved segment. */
   readonly segmentIndex: number
+  /** Structural reason the Schema could not be traversed. */
   readonly reason: SchemaNavigationError['reason']
+  /** Tag of the Schema AST at which traversal stopped. */
   readonly astTag: string
 }
 
 /** Effect Schema encode/decode failure at a resolved tree path. */
 export interface TreeCodecOperationError {
+  /** Discriminant for path-local Schema codec failure. */
   readonly _tag: 'TreeCodecOperationError'
+  /** Codec operation that failed. */
   readonly operation: 'encode' | 'decode'
+  /** Tuple path whose field codec failed. */
   readonly path: TreePath
+  /** Native Effect Schema failure. */
   readonly cause: Schema.SchemaError
 }
 

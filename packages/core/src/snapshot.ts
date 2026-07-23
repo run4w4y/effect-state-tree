@@ -15,15 +15,21 @@ export type SnapshotError = AliasedNodeError | UnsupportedTreeNodeError
  * every capture and whenever an existing snapshot is admitted again.
  */
 export interface AtomicInterpreter<A> {
+  /** Human-readable interpreter name used in diagnostics. */
   readonly name: string
+  /** Detects values owned by this interpreter. */
   is(value: unknown): value is A
+  /** Captures a mutable input as an immutable atomic snapshot. */
   capture(value: A): A
+  /** Verifies that a value is already a valid immutable snapshot. */
   isSnapshot(value: A): boolean
+  /** Optional equality used during diffing and reconciliation. */
   equals?(left: A, right: A): boolean
 }
 
 /** Atomic leaf interpreters available while capturing a snapshot. */
 export interface SnapshotOptions {
+  /** Additional immutable atomic leaf interpreters. */
   readonly atomicInterpreters?: ReadonlyArray<AtomicInterpreter<unknown>>
 }
 

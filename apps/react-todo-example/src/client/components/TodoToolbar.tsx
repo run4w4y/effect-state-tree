@@ -1,11 +1,9 @@
-import { useStoreView, useTreeCommand } from '@effect-state-tree/react'
+import { useAtom, useAtomValue } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 import { Option, Schema } from 'effect'
 
 import { TodoFilter } from '../../shared/todo'
-import { changeFilter } from '../state/actions'
-import { TodoReact } from '../state/todo-tree'
-import type { TodoWorkspace } from '../state/workspace'
+import type { TodoAtoms } from '../state/atoms'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 import { AsyncFailure } from './AsyncFailure'
 import { Button } from './Button'
@@ -43,18 +41,12 @@ const styles = stylex.create({
 
 const decodeFilter = Schema.decodeUnknownOption(TodoFilter)
 
-export const TodoToolbar = ({
-  workspace,
-}: {
-  readonly workspace: TodoWorkspace
-}) => {
-  const filter = TodoReact.useSelector((state) => state.filter, {
-    paths: [['filter']],
-  })
-  const history = useStoreView(workspace.history)
-  const change = TodoReact.useCommand(changeFilter)
-  const undo = useTreeCommand(() => workspace.history.undo)
-  const redo = useTreeCommand(() => workspace.history.redo)
+export const TodoToolbar = ({ atoms }: { readonly atoms: TodoAtoms }) => {
+  const filter = useAtomValue(atoms.filter)
+  const history = useAtomValue(atoms.history)
+  const [changeResult, change] = useAtom(atoms.actions.changeFilter)
+  const [undoResult, undo] = useAtom(atoms.actions.undo)
+  const [redoResult, redo] = useAtom(atoms.actions.redo)
 
   return (
     <>
@@ -67,7 +59,7 @@ export const TodoToolbar = ({
               aria-label="Filter todos"
               onChange={(event) => {
                 const decoded = decodeFilter(event.target.value)
-                if (Option.isSome(decoded)) change.run(decoded.value)
+                if (Option.isSome(decoded)) change(decoded.value)
               }}
               value={filter}
             >
@@ -85,23 +77,23 @@ export const TodoToolbar = ({
         <div {...stylex.props(styles.group)}>
           <Button
             compact
-            disabled={history.undo.length === 0 || undo.result.waiting}
-            onClick={() => undo.run()}
+            disabled={history.undo.length === 0 || undoResult.waiting}
+            onClick={() => undo(undefined)}
           >
             Undo
           </Button>
           <Button
             compact
-            disabled={history.redo.length === 0 || redo.result.waiting}
-            onClick={() => redo.run()}
+            disabled={history.redo.length === 0 || redoResult.waiting}
+            onClick={() => redo(undefined)}
           >
             Redo
           </Button>
         </div>
       </div>
-      <AsyncFailure result={change.result} />
-      <AsyncFailure result={undo.result} />
-      <AsyncFailure result={redo.result} />
+      <AsyncFailure result={changeResult} />
+      <AsyncFailure result={undoResult} />
+      <AsyncFailure result={redoResult} />
     </>
   )
 }

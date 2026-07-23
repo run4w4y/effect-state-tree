@@ -1,6 +1,5 @@
 import { bindCrdt, CrdtInboundTag } from '@effect-state-tree/crdt'
 import { makeLoroAdapter } from '@effect-state-tree/loro'
-import { bindReactTree } from '@effect-state-tree/react'
 import {
   type ChangeEnvelope,
   makeCommitReducerController,
@@ -35,8 +34,6 @@ export interface MakeCollaborationPeerOptions {
   readonly endpoint?: string
   readonly transport?: LoroTransportFactory
 }
-
-export const BoardReact = bindReactTree(BoardTree)
 
 const makeCommitFeed = (
   store: BoardStore,

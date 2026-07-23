@@ -10,8 +10,10 @@ pure tree kernel ── producer
 Effect runtime and commit envelopes
     ↓
 validation · drafts · history · persistence · CRDT · devtools
+    ↓                                      ↓
+Effect Atom projection                    Foldkit
     ↓
-React · Solid · Vue · Svelte · Effect Atom · Foldkit
+official Effect Atom framework bindings
 ```
 
 The kernel contains no runtime service, history manager, draft type, backend,
@@ -50,7 +52,8 @@ A store commit has:
 - ordered forward and directly executable inverse patches;
 - touched paths;
 - optional semantic operations and their inverses;
-- transaction ID, source token, tags, label, metadata, and commit time.
+- transaction ID, optional enclosing action ID/name, source token, tags, label,
+  metadata, and commit time.
 
 Patch values are captured and frozen when the patch is accepted. A caller cannot
 mutate history, replay, persistence, or CRDT output after the fact.
@@ -64,14 +67,19 @@ transaction.
 The runtime can be allocated directly, as a scoped resource, or behind a typed
 Effect `Context.Service` and `Layer`. Commit timestamps come from Effect Clock,
 and transaction identifiers are supplied by an injectable Effect service.
+Path checkpoints capture a value and revision from one store. Conditional
+updates revalidate the captured path inside the same retry-safe commit loop, so
+unrelated commits proceed while stale asynchronous responses cannot overwrite a
+changed path.
 
 ## Plugins
 
-History is a reducer/controller over committed forward and inverse patches.
-Drafts are independent ordinary tree stores using the same Schema, with commit,
-reset, partial commit/reset, dirty checks, and identity preconditions. Validation
-keeps native `SchemaIssue` trees in a sidecar report. None of these concepts
-changes the kernel.
+History is a reducer/controller over committed forward and inverse patches;
+tagged baseline commits reset its stacks in revision order. Drafts are
+independent ordinary tree stores using the same Schema, with commit, reset,
+partial commit/reset, dirty checks, identity preconditions, and checkpointed
+submit/refresh reconciliation. Validation keeps native `SchemaIssue` trees in a
+sidecar report. None of these concepts changes the kernel.
 
 ## CRDT semantics
 
@@ -103,27 +111,31 @@ interface StoreView<A> {
 }
 ```
 
-Direct framework adapters consume that protocol. The Effect Atom adapter is an
-optional projection, not an owner of canonical state. Foldkit uses the pure
-reducer face so its Model still changes only through `update`.
+`@effect-state-tree/atom` is the single reactive UI projection. It converts
+`StoreView` values into scoped Atoms and derives an `AtomRuntime` whose Layer
+already contains the tree's typed Effect service. The canonical store remains
+outside Atom; Atom owns subscription lifecycle, reactive composition, Effect
+execution, and asynchronous UI state.
 
-React adapts `StoreView` with `useSyncExternalStore`, Solid with signals, Vue
-with shallow refs, and Svelte with readable stores. History, validation, and
-other plugin controllers already implement `StoreView`, so framework packages
-do not depend on those plugins or add plugin-specific subscription wrappers.
-`@effect-state-tree/atom` is the only Atom-powered integration path; direct framework
-adapters do not create or depend on atoms.
+Applications create Atom identities once when admitting their store. Stable
+parameterized projections use `Atom.family`. Selector atoms retain the
+runtime's path filtering, equality, and structural-sharing behavior, so UI code
+does not recreate selector memoization or subscribe directly to the store.
 
-`StoreView.getSnapshot` is a cached value, as required by React's external-store
-contract. The React selector binding likewise exposes only a cached scalar
-version to `useSyncExternalStore`: store notifications reconcile the projection
-once, while inline selector closures refresh during their ordinary component
-render without resubscribing or mutating that external version. Derived arrays
-therefore require neither `useMemo` nor a framework-specific atom wrapper.
+Tree definitions derive typed updates and full actions. Updates accept one typed
+input, resolve their store through Effect Context, and commit one synchronous
+mutation recipe. Actions use `Effect.fn`, may resolve API clients and other
+services, await asynchronous work, and use tree updates as short atomic commit
+points. Commits inherit their enclosing action ID/name; tree mutation recipes
+themselves never suspend.
 
-Command controllers also expose a `StoreView<AsyncResult<...>>`. Their overlap
-policy is explicit: `execution: 'switch'` is the default and interrupts a
-superseded invocation, while `execution: 'merge'` lets every invocation finish.
-Switch is appropriate for replacement-style work such as rapidly changing a
-search or title; merge is appropriate for discrete mutations where no click or
-submission may be discarded.
+`TreeAtoms.fn` is Effect Atom's native runtime function constructor, so results
+use native `AsyncResult` and accept native reset/interruption controls. Its
+`concurrent` option is passed through unchanged: the default interrupts a
+superseded invocation, while `concurrent: true` preserves every independent
+invocation.
+
+UI components consume these atoms through Effect's official framework binding
+packages. This project ships no framework-specific hook, signal, ref, provider,
+or command abstraction. Foldkit remains a separate pure reducer interpreter so
+its Model changes only through `update`.

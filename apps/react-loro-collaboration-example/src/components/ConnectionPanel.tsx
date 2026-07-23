@@ -1,7 +1,8 @@
-import { useStoreView } from '@effect-state-tree/react'
+import { useAtomValue } from '@effect/atom-react'
 import * as stylex from '@stylexjs/stylex'
 import { useState } from 'react'
 
+import type { CollaborationAtoms } from '../client/atoms'
 import type { CollaborationPeer } from '../client/peer'
 import { colors, radii, spacing } from '../styles/tokens.stylex'
 
@@ -68,11 +69,13 @@ const makeAnotherPeerUrl = (peer: CollaborationPeer): string => {
 }
 
 export const ConnectionPanel = ({
+  atoms,
   peer,
 }: {
+  readonly atoms: CollaborationAtoms
   readonly peer: CollaborationPeer
 }) => {
-  const connection = useStoreView(peer.transport.state)
+  const connection = useAtomValue(atoms.connection)
   const [anotherPeerUrl] = useState(() => makeAnotherPeerUrl(peer))
   const tone =
     connection._tag === 'Connected'
