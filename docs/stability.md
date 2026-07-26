@@ -5,9 +5,10 @@ development and dogfooding, and every API should be treated as changeable.
 
 ## Development snapshots
 
-An on-demand snapshot is identified by the exact Git commit from which it was
-built. Each public package is available as a separate archive attached to the
-matching `snapshot-<full commit SHA>` GitHub prerelease.
+A snapshot is produced automatically for every commit pushed to `main` that
+passes CI. It is identified by that exact Git commit, and each public package is
+available as a separate archive attached to the matching
+`snapshot-<full commit SHA>` GitHub prerelease.
 
 The package version inside an archive does not describe compatibility or
 identify the source commit. Consumer applications should pin complete

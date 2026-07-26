@@ -31,10 +31,10 @@ The project is ESM-only and currently requires `effect@4.0.0-beta.99`.
 
 ## Quick start
 
-There is no stable installation channel yet. Development snapshots are attached
-to explicitly requested GitHub prereleases and are identified by their complete
-Git commit SHA. See [Development snapshots](#development-snapshots) if you need
-to consume one.
+There is no stable installation channel yet. Every commit pushed to `main` that
+passes CI receives a development snapshot, identified by its complete Git commit
+SHA. See [Development snapshots](#development-snapshots) if you need to consume
+one.
 
 ```ts
 import { entity, makeTreeSpec } from '@effect-state-tree/core'
@@ -160,8 +160,8 @@ project.
 
 ## Development snapshots
 
-Snapshots are created manually from the GitHub Actions **Publish development
-snapshot** workflow. A snapshot uses:
+After CI succeeds for a commit pushed to `main`, GitHub Actions automatically
+creates a development snapshot. A snapshot uses:
 
 - GitHub tag `snapshot-COMMIT`, where `COMMIT` is the full 40-character SHA;
 - one tarball per public package;

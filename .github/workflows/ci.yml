@@ -34,3 +34,154 @@ jobs:
 
       - name: Pack public packages
         run: bun run snapshot:pack
+
+      - name: Upload development snapshot packages
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-packages-${{ github.sha }}
+          path: dist/packages/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-snapshot:
+    name: Publish development snapshot
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: effect-state-tree-snapshot-${{ github.sha }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Download development snapshot packages
+        uses: actions/download-artifact@v5
+        with:
+          name: snapshot-packages-${{ github.sha }}
+          path: dist/packages
+
+      - name: Publish development snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SNAPSHOT_COMMIT: ${{ github.sha }}
+          SNAPSHOT_TAG: snapshot-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          expected_archives=(
+            effect-state-tree-atom-0.1.0.tgz
+            effect-state-tree-core-0.1.0.tgz
+            effect-state-tree-crdt-0.1.0.tgz
+            effect-state-tree-devtools-0.1.0.tgz
+            effect-state-tree-draft-0.1.0.tgz
+            effect-state-tree-foldkit-0.1.0.tgz
+            effect-state-tree-history-0.1.0.tgz
+            effect-state-tree-loro-0.1.0.tgz
+            effect-state-tree-persistence-0.1.0.tgz
+            effect-state-tree-persistence-browser-0.1.0.tgz
+            effect-state-tree-producer-0.1.0.tgz
+            effect-state-tree-runtime-0.1.0.tgz
+            effect-state-tree-validation-0.1.0.tgz
+            effect-state-tree-yjs-0.1.0.tgz
+          )
+          archives=(dist/packages/*.tgz)
+          expected_names="$RUNNER_TEMP/expected-snapshot-assets.txt"
+          actual_names="$RUNNER_TEMP/actual-snapshot-assets.txt"
+          printf '%s\n' "${expected_archives[@]}" | LC_ALL=C sort > "$expected_names"
+          printf '%s\n' "${archives[@]##*/}" | LC_ALL=C sort > "$actual_names"
+
+          if ! diff -u "$expected_names" "$actual_names"; then
+            echo "The snapshot does not contain the expected 14 package archives." >&2
+            exit 1
+          fi
+
+          find_release() {
+            gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq --slurp --compact-output --arg tag "$SNAPSHOT_TAG" \
+                'add | map(select(.tag_name == $tag)) | first // empty'
+          }
+
+          verify_release_assets() {
+            local release_id="$1"
+            local release_json
+            release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+            jq -r '.assets[].name' <<< "$release_json" |
+              LC_ALL=C sort > "$actual_names"
+
+            if ! diff -u "$expected_names" "$actual_names"; then
+              echo "The GitHub release does not contain the expected 14 assets." >&2
+              exit 1
+            fi
+
+            if ! jq -e 'all(.assets[]; .state == "uploaded" and .size > 0)' \
+              <<< "$release_json" >/dev/null; then
+              echo "One or more GitHub release assets are incomplete." >&2
+              exit 1
+            fi
+          }
+
+          release_json="$(find_release)"
+          snapshot_title="Development snapshot ${SNAPSHOT_COMMIT:0:12}"
+          snapshot_notes="Unsupported development snapshot built from commit $SNAPSHOT_COMMIT. Download the individual package archives from the assets below. See the repository README for Bun override instructions."
+
+          if [[ -n "$release_json" && "$(jq -r '.draft' <<< "$release_json")" == "false" ]]; then
+            release_id="$(jq -r '.id' <<< "$release_json")"
+
+            if [[ "$(jq -r '.prerelease' <<< "$release_json")" != "true" ]]; then
+              echo "The existing snapshot release is not marked as a prerelease." >&2
+              exit 1
+            fi
+
+            resolved_commit="$(
+              gh api "repos/$GITHUB_REPOSITORY/commits/$SNAPSHOT_TAG" --jq '.sha'
+            )"
+            if [[ "$resolved_commit" != "$SNAPSHOT_COMMIT" ]]; then
+              echo "The existing snapshot tag points to $resolved_commit, not $SNAPSHOT_COMMIT." >&2
+              exit 1
+            fi
+
+            verify_release_assets "$release_id"
+            echo "Snapshot $SNAPSHOT_TAG is already published and complete."
+            exit 0
+          fi
+
+          if [[ -n "$release_json" ]]; then
+            gh release edit "$SNAPSHOT_TAG" \
+              --target "$SNAPSHOT_COMMIT" \
+              --title "$snapshot_title" \
+              --notes "$snapshot_notes" \
+              --prerelease \
+              --draft
+          else
+            gh release create "$SNAPSHOT_TAG" \
+              --target "$SNAPSHOT_COMMIT" \
+              --title "$snapshot_title" \
+              --notes "$snapshot_notes" \
+              --prerelease \
+              --draft \
+              --latest=false
+          fi
+
+          gh release upload "$SNAPSHOT_TAG" "${archives[@]}" --clobber
+
+          release_json="$(find_release)"
+          release_id="$(jq -r '.id' <<< "$release_json")"
+          verify_release_assets "$release_id"
+
+          gh release edit "$SNAPSHOT_TAG" --draft=false --prerelease
+
+          resolved_commit="$(
+            gh api "repos/$GITHUB_REPOSITORY/commits/$SNAPSHOT_TAG" --jq '.sha'
+          )"
+          if [[ "$resolved_commit" != "$SNAPSHOT_COMMIT" ]]; then
+            echo "Published snapshot tag points to $resolved_commit, not $SNAPSHOT_COMMIT." >&2
+            exit 1
+          fi
