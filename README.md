@@ -1,19 +1,43 @@
-# Effect Tree
+# effect-state-tree
 
-Effect Tree is an Effect v4 Schema-native state system built around one small
-kernel: immutable tree snapshots, tuple paths, ordered patches, inverse patches,
-identity, and reconciliation. The live store, validation, drafts, history,
-persistence, CRDTs, devtools, and frontend bindings are separate consumers of
-that kernel.
+effect-state-tree is an experimental state-tree library built with Effect and
+Effect Schema. It combines immutable snapshots with concise mutable-looking
+updates, then exposes each accepted change as a typed commit that other features
+can observe.
 
-The workspace is pinned to `effect@4.0.0-beta.97`. It deliberately has no MobX,
-mobx-keystone, React, or Atom dependency in its core.
+## Active development
+
+effect-state-tree is currently a draft and an experiment. Do not rely on it for
+anything important: its APIs and behavior may change at any time, and any use is
+entirely at your own risk.
+
+## Why effect-state-tree?
+
+Application state often needs more than a reactive container. It may also need
+validation, undo and redo, persistence, collaboration, stable references, or a
+safe way to reconcile data returned by a server. effect-state-tree gives those
+features a shared foundation:
+
+- Effect Schema describes the shape and encoded form of the state.
+- Every accepted state is an immutable snapshot.
+- Updates use familiar mutable syntax without exposing mutable state.
+- Each update produces ordered patches, inverse patches, and commit metadata.
+- Optional packages add history, drafts, persistence, CRDTs, devtools, and
+  frontend reactivity without putting them in the core.
+- Effect owns services, failures, interruption, asynchronous work, and resource
+  lifetimes.
+
+The project is ESM-only and currently requires `effect@4.0.0-beta.99`.
 
 ## Quick start
 
+There is no stable installation channel yet. Development snapshots are attached
+to explicitly requested GitHub prereleases and are identified by their complete
+Git commit SHA. See [Development snapshots](#development-snapshots) if you need
+to consume one.
+
 ```ts
 import { entity, makeTreeSpec } from '@effect-state-tree/core'
-import { makeHistory } from '@effect-state-tree/history'
 import { defineTree } from '@effect-state-tree/runtime'
 import { Effect, Schema } from 'effect'
 
@@ -25,140 +49,151 @@ const Todo = Schema.Struct({
 
 type Todo = typeof Todo.Type
 
-const Root = Schema.Struct({
+const TodoList = Schema.Struct({
   todos: Schema.Array(Todo),
 })
 
-const TodoTree = defineTree('@example/TodoTree', makeTreeSpec(Root))
-
-const addTodo = TodoTree.update(
-  (root, todo: Todo) => {
-    root.todos.push(todo)
-  },
-  (todo) => ({ label: `Add ${todo.title}` })
+const TodoTree = defineTree(
+  '@example/TodoTree',
+  makeTreeSpec(TodoList)
 )
+
+const addTodo = TodoTree.update((root, todo: Todo) => {
+  root.todos.push(todo)
+})
 
 const program = Effect.gen(function* () {
-  const store = yield* TodoTree.service
-  const history = makeHistory(store)
-
   yield* addTodo({
-    id: 'todo-1',
-    title: 'Ship Effect Tree',
+    id: 'first',
+    title: 'Try effect-state-tree',
     done: false,
   })
-  yield* history.undo
-  yield* history.redo
+
+  return yield* TodoTree.get
 }).pipe(Effect.provide(TodoTree.layer({ todos: [] })))
 
-Effect.runPromise(Effect.scoped(program))
+const snapshot = await Effect.runPromise(Effect.scoped(program))
 ```
 
-For Atom-powered frontends, derive the reactive surface from the admitted store
-once and hand the resulting atoms to the official Effect binding for the UI
-framework:
+The update recipe receives a temporary mutable view. If the update is accepted,
+the store publishes a new immutable snapshot and one commit containing the
+forward and inverse changes.
 
-```ts
-import { makeTreeAtoms } from '@effect-state-tree/atom'
+## Design
 
-const store = await Effect.runPromise(
-  TodoTree.make({
-    todos: [],
-  })
-)
-const atoms = makeTreeAtoms(TodoTree, store)
+effect-state-tree starts with a small kernel for snapshots, paths, identity,
+patches, and reconciliation. The live store and every higher-level feature
+consume that same kernel instead of defining their own state format.
 
-export const todosAtom = atoms.select((root) => root.todos, {
-  paths: [['todos']],
-})
-export const addTodoAtom = atoms.fn(addTodo, { concurrent: true })
-```
+This separation is intentional:
 
-Effects own execution, services, failures, interruption, and asynchronous work.
-A committed patch set owns state atomicity. Mutable-looking recipes are temporary
-mutation producers; the canonical value is always an immutable snapshot.
-Fallible pure kernel operations use Effect's native `Result`; live operations
-use typed `Effect` error channels.
+- pure snapshot and patch operations can be used without a live store;
+- applications opt into only the features they need;
+- persistence and collaboration share the Schema's encoded representation;
+- UI integrations observe a small store view instead of owning canonical state;
+- asynchronous actions can perform Effects around short atomic updates.
 
-`TreeDefinition.update` is deliberately narrow: it resolves the tree service
-from Effect Context and commits one synchronous mutation recipe. Full actions
-derive from the same definition with `TreeDefinition.action`; they are ordinary
-Effects that may resolve HTTP clients and other services, await asynchronous
-work, and use one or more short tree updates as atomic commit points. Every
-commit inherits the surrounding action ID and name.
+Read [Design](./docs/design.md) for the complete mental model and the tradeoffs
+behind it.
 
-`@effect-state-tree/atom` derives stable selector and function atoms from an
-admitted store. Function atoms use Effect Atom's native `AsyncResult`, reset,
-interruption, and concurrency semantics. The official Effect Atom binding for a
-UI framework owns the final component-level integration; this workspace does
-not duplicate those bindings.
+## Inspired by mobx-keystone
 
-Native mutable values such as `Date` and `Map` are not admitted implicitly.
-Register an `AtomicInterpreter` when a domain value has a sound immutable
-capture strategy. `dateAtomicInterpreter` is an explicit compatibility option,
-but its immutable Date-like proxy is not structured-cloneable; ISO strings or
-epoch milliseconds are the more portable canonical representation.
+effect-state-tree would not exist without
+[mobx-keystone](https://github.com/xaviergonz/mobx-keystone). Javier González
+Garcés and everyone who has contributed to the project have done extraordinary
+work exploring how a TypeScript state tree can combine approachable mutable
+updates with immutable snapshots, patches, identity, reconciliation,
+references, drafts, undo and redo, and collaborative state.
 
-## Workspace
-
-The repository follows the same local-tooling shape as the `cv` workspace:
-
-- Nx owns the project graph, target dependencies, and caching.
-- Bun owns the lockfile, workspaces, scripts, and unit-test runtime.
-- `flake.nix` provisions Bun, Node 22, Chromium, Git, nixfmt, and shellcheck.
-- direnv activates the flake and disables the Nx daemon.
-
-```sh
-direnv allow
-bun install
-bun run check
-bun run graph
-```
+Their work is the direct inspiration for this library. effect-state-tree
+explores these ideas through Effect and Effect Schema, but much of what it is
+trying to accomplish was made imaginable—and substantially clearer—by the work
+of the mobx-keystone community. We are deeply grateful to them and strongly
+encourage readers to explore the
+[mobx-keystone documentation](https://mobx-keystone.js.org/) and support the
+project.
 
 ## Packages
 
-| Package | Responsibility |
+### State tree
+
+| Package | Purpose |
 | --- | --- |
-| `@effect-state-tree/core` | Schema specs, immutable snapshots, paths, identity, refs, patch/inverse-patch laws, reconciliation, path codecs |
-| `@effect-state-tree/producer` | Temporary mutation recipes and semantic object/array/move/text operations |
-| `@effect-state-tree/runtime` | Effect v4 transactional store, commit stream, guards, sinks, selectors, provenance |
-| `@effect-state-tree/validation` | Lifecycle-aware native Schema checks and path-indexed issue reports |
-| `@effect-state-tree/draft` | Same-Schema draft stores built only from public tree/runtime operations |
-| `@effect-state-tree/history` | Undo, redo, grouping, skipping, limits, and attached state |
-| `@effect-state-tree/persistence` | Schema-coded persistence binding and JSON key-value adapter |
-| `@effect-state-tree/persistence-browser` | Official Effect LocalStorage, SessionStorage, and IndexedDB layers |
-| `@effect-state-tree/crdt` | Serialized, identity-aware CRDT binding and provenance contract |
-| `@effect-state-tree/yjs` | Y.Map/Y.Array/Y.Text adapter with one Y transaction per commit |
-| `@effect-state-tree/loro` | Loro map/list/movable-list/text adapter with native move support |
-| `@effect-state-tree/devtools` | Commit timeline, patches, snapshots, and programmatic time travel |
-| `@effect-state-tree/atom` | StoreView projection, typed tree Atom runtimes, selectors, and Effect function atoms |
-| `@effect-state-tree/foldkit` | Pure Model/Message/update/Command-compatible reducer interpreter |
+| [`@effect-state-tree/core`](./packages/core) | Schemas, immutable snapshots, paths, identity, references, patches, and reconciliation |
+| [`@effect-state-tree/producer`](./packages/producer) | Mutable-looking update recipes and intent-preserving tree operations |
+| [`@effect-state-tree/runtime`](./packages/runtime) | Effect services, stores, updates, actions, selectors, and commit streams |
 
-## Example applications
+### Optional capabilities
 
-[`apps/react-todo-example`](./apps/react-todo-example) is a production-built
-todo app with an Effect v4 `HttpApi` server. One long-lived same-Schema draft
-holds every local edit and its patch history; Save performs an optimistic typed
-request inside a context-resolved Effect action. The response updates the
-authoritative original and only resets the draft when no newer local edit was
-made while the request was in flight. It also demonstrates stable inline
-selectors, native Atom `AsyncResult` state, Schema diagnostics, StyleX, and
-Playwright tests for conflicts, draft isolation, and request races.
+| Package | Purpose |
+| --- | --- |
+| [`@effect-state-tree/validation`](./packages/validation) | Native Effect Schema reports and latest-valid checkpoints |
+| [`@effect-state-tree/draft`](./packages/draft) | Editable drafts with saved checkpoints and submission reconciliation |
+| [`@effect-state-tree/history`](./packages/history) | Undo, redo, grouping, limits, and attached state |
+| [`@effect-state-tree/persistence`](./packages/persistence) | Schema-coded persistence and versioned migrations |
+| [`@effect-state-tree/devtools`](./packages/devtools) | Commit inspection and programmatic time travel |
 
-[`apps/react-loro-collaboration-example`](./apps/react-loro-collaboration-example)
-runs one independent peer per browser page against an Effect WebSocket room
-server. Any number of peers and isolated rooms can collaborate through native
-Loro movable-list and text operations, automatic reconnect, provenance and
-echo suppression, commit feeds, and peer-local intention undo.
+### Integrations
 
-```sh
-bun x nx dev:server @effect-state-tree/react-todo-example
-bun x nx dev @effect-state-tree/react-todo-example
-bun x nx dev:server @effect-state-tree/react-loro-collaboration-example
-bun x nx dev @effect-state-tree/react-loro-collaboration-example
-bun run test:e2e
+| Package | Purpose |
+| --- | --- |
+| [`@effect-state-tree/persistence-browser`](./packages/persistence-browser) | LocalStorage, SessionStorage, and IndexedDB layers |
+| [`@effect-state-tree/crdt`](./packages/crdt) | Shared coordination for collaborative backends |
+| [`@effect-state-tree/yjs`](./packages/yjs) | Yjs maps, arrays, text, and local-intention undo |
+| [`@effect-state-tree/loro`](./packages/loro) | Loro maps, lists, movable lists, text, and local-intention undo |
+| [`@effect-state-tree/atom`](./packages/atom) | Effect Atom selectors, runtimes, and function atoms |
+| [`@effect-state-tree/foldkit`](./packages/foldkit) | Pure Model, Message, update, and Command-style interpretation |
+
+## Examples
+
+- [React todo](./apps/react-todo-example) demonstrates a validated draft,
+  history, optimistic saves, request races, and Effect Atom React bindings.
+- [React Loro collaboration](./apps/react-loro-collaboration-example)
+  demonstrates multiple browser peers, movable lists, collaborative text,
+  reconnects, and peer-local undo.
+
+## Documentation
+
+- [Design](./docs/design.md)
+- [Validation and editable state](./docs/validation.md)
+- [Stability and limitations](./docs/stability.md)
+
+## Development snapshots
+
+Snapshots are created manually from the GitHub Actions **Publish development
+snapshot** workflow. A snapshot uses:
+
+- GitHub tag `snapshot-COMMIT`, where `COMMIT` is the full 40-character SHA;
+- one tarball per public package;
+- the ordinary package manifests and compiled `dist` output from that commit.
+
+The commit in the release URL is the snapshot identity. The `0.1.0` version
+inside an archive is only package metadata and does not promise compatibility.
+
+Each package can be installed from its release asset. Until the packages are
+published to a registry, Bun consumers must also override internal package
+dependencies so Bun resolves them to assets from the same snapshot:
+
+```json
+{
+  "dependencies": {
+    "@effect-state-tree/core": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-core-0.1.0.tgz",
+    "@effect-state-tree/producer": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-producer-0.1.0.tgz",
+    "@effect-state-tree/runtime": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-runtime-0.1.0.tgz",
+    "effect": "4.0.0-beta.99"
+  },
+  "overrides": {
+    "@effect-state-tree/core": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-core-0.1.0.tgz",
+    "@effect-state-tree/producer": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-producer-0.1.0.tgz",
+    "@effect-state-tree/runtime": "https://github.com/run4w4y/effect-state-tree/releases/download/snapshot-COMMIT/effect-state-tree-runtime-0.1.0.tgz"
+  }
+}
 ```
 
-See [architecture.md](./docs/architecture.md), [validation.md](./docs/validation.md),
-and [implementation-status.md](./docs/implementation-status.md) for the design
-contract and the remaining beta-era limitations.
+Use the same full SHA in every URL. Add each effect-state-tree package needed by
+the application and its internal dependency graph to both sections. This
+temporary override is unnecessary once the packages are available from a
+registry.
+
+Always commit the consumer's lockfile. A newer snapshot is a deliberate source
+upgrade, not a compatible package update.

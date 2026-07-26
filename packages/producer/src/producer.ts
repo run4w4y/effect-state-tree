@@ -9,7 +9,6 @@ import {
   applyTreePatches,
   CollaborativeTextAnnotationKey,
   captureSnapshot,
-  captureTreeSnapshot,
   type GetAtPathFailure,
   getAtPath,
   identityAt,
@@ -389,23 +388,25 @@ export const produceTreeChange = <S extends Schema.Constraint>(
   snapshot: TreeValue<S>,
   recipe: TreeRecipe<TreeValue<S>>
 ): Result.Result<ProducedChange<TreeValue<S>>, ProducerError> => {
+  const snapshotOptions = snapshotOptionsFor(spec)
+  const capturedSnapshot = captureSnapshot(snapshot, snapshotOptions)
+  if (Result.isFailure(capturedSnapshot)) {
+    return Result.fail(capturedSnapshot.failure)
+  }
+  const base = capturedSnapshot.success
   const state: MutableRecordState = {
     operations: [],
     inverseOperations: [],
-    snapshotOptions: snapshotOptionsFor(spec),
+    snapshotOptions,
     error: undefined,
   }
-  const [next, forward] = produceWithPatches(snapshot, (mutable) => {
-    recipe(mutable, makeRecorder(spec, snapshot, mutable, state))
+  const [, forward] = produceWithPatches(base, (mutable) => {
+    recipe(mutable, makeRecorder(spec, base, mutable, state))
   })
   if (state.error !== undefined) return Result.fail(state.error)
 
   const patches = forward.map(toTreePatch)
-  const canonicalNext = captureTreeSnapshot(spec, next, 'treeMutation')
-  if (Result.isFailure(canonicalNext)) {
-    return Result.fail(canonicalNext.failure)
-  }
-  const checked = applyTreePatches(spec, snapshot, patches)
+  const checked = applyTreePatches(spec, base, patches)
   if (Result.isFailure(checked)) return Result.fail(checked.failure)
 
   const operations = Object.freeze(

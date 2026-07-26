@@ -1,7 +1,23 @@
 {
   "name": "@effect-state-tree/core",
   "version": "0.1.0",
+  "description": "Schema-native immutable tree snapshots, identity, patches, and reconciliation.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/run4w4y/effect-state-tree.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/run4w4y/effect-state-tree#readme",
+  "bugs": {
+    "url": "https://github.com/run4w4y/effect-state-tree/issues"
+  },
+  "keywords": [
+    "effect",
+    "effect-schema",
+    "state-tree",
+    "typescript"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -13,10 +29,13 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "pack": "bun pm pack --destination ../../dist/packages"
+  },
   "dependencies": {
     "es-toolkit": "1.43.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "catalog:"
   }
 }

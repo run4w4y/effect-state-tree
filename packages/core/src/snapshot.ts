@@ -80,7 +80,7 @@ const immutableDate = (value: Date): Date => {
 
       if (dateMutators.has(property)) {
         const rejectMutation = () => {
-          throw new TypeError('Effect Tree Date snapshots are immutable')
+          throw new TypeError('effect-state-tree Date snapshots are immutable')
         }
         methods.set(property, rejectMutation)
         return rejectMutation
@@ -135,7 +135,8 @@ const mutableAtomicError = (path: TreePath): UnsupportedTreeNodeError => ({
 const findSnapshotError = (
   value: unknown,
   options: SnapshotOptions,
-  allowUncapturedAtomics = false
+  allowUncapturedAtomics = false,
+  requireFrozenContainers = true
 ): SnapshotError | undefined => {
   const seen = new WeakMap<object, TreePath>()
 
@@ -154,6 +155,14 @@ const findSnapshotError = (
       return node !== null && typeof node === 'object'
         ? mutableAtomicError(copyPath(path))
         : undefined
+    }
+
+    if (requireFrozenContainers && !Object.isFrozen(node)) {
+      return {
+        _tag: 'UnsupportedTreeNodeError',
+        path: copyPath(path),
+        reason: 'mutable-container',
+      }
     }
 
     const previous = seen.get(node)
@@ -282,7 +291,10 @@ export const captureSnapshot = <A>(
   value: A,
   options: SnapshotOptions = {}
 ): Result.Result<A, SnapshotError> => {
-  const error = findSnapshotError(value, options, true)
+  const admitted = validateSnapshotShape(value, options)
+  if (Result.isSuccess(admitted)) return Result.succeed(value)
+
+  const error = findSnapshotError(value, options, true, false)
   return error === undefined
     ? cloneAndFreeze(value, options)
     : Result.fail(error)

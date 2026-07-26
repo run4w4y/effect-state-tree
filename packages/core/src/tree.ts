@@ -11,9 +11,7 @@ import {
   resolveSchemaPath,
   snapshotOptionsFor,
   type TreeSpec,
-  type TreeValidationPhase,
   type TreeValue,
-  treeSchemaParseOptions,
 } from './spec'
 
 /** Canonical admitted snapshot and its Schema-derived identity index. */
@@ -27,19 +25,18 @@ export interface AdmittedTree<S extends Schema.Constraint> {
 /** Validates an existing snapshot against tree and Schema invariants. */
 export const validateTreeSnapshot = <S extends Schema.Constraint>(
   spec: TreeSpec<S>,
-  snapshot: TreeValue<S>,
-  phase: TreeValidationPhase = 'treeMutation'
+  snapshot: TreeValue<S>
 ): Result.Result<EntityIndex, TreeInvariantError> => {
   const shape = validateSnapshotShape(snapshot, snapshotOptionsFor(spec))
   if (Result.isFailure(shape)) return Result.fail(shape.failure)
-  const structural = SchemaParser.decodeUnknownResult(
-    spec.typeSchema,
-    treeSchemaParseOptions(phase, 'admission')
-  )(snapshot)
-  if (Result.isFailure(structural)) {
+  const decoded = SchemaParser.decodeUnknownResult(spec.typeSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(snapshot)
+  if (Result.isFailure(decoded)) {
     return Result.fail({
       _tag: 'SchemaAdmissionError',
-      issue: structural.failure,
+      issue: decoded.failure,
     })
   }
   return buildEntityIndex(spec, snapshot)
@@ -48,12 +45,11 @@ export const validateTreeSnapshot = <S extends Schema.Constraint>(
 /** Admits unknown decoded data as an immutable Schema-described tree. */
 export const captureTreeSnapshot = <S extends Schema.Constraint>(
   spec: TreeSpec<S>,
-  value: TreeValue<S>,
-  phase: TreeValidationPhase = 'construction'
+  value: TreeValue<S>
 ): Result.Result<AdmittedTree<S>, TreeInvariantError> =>
   Result.gen(function* () {
     const snapshot = yield* captureSnapshot(value, snapshotOptionsFor(spec))
-    const entities = yield* validateTreeSnapshot(spec, snapshot, phase)
+    const entities = yield* validateTreeSnapshot(spec, snapshot)
     return Object.freeze({ snapshot, entities })
   })
 

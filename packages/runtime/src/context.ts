@@ -1,4 +1,3 @@
-import type { TreeValidationPhase } from '@effect-state-tree/core'
 import { Context, Effect, HashSet } from 'effect'
 import type { TreeActionInfo } from './types'
 
@@ -15,8 +14,6 @@ export interface CommitContextValue {
   readonly metadata?: unknown
   /** Default provenance token used by adapters for echo suppression. */
   readonly source?: SourceToken
-  /** Default Schema lifecycle phase used for admission and diagnostics. */
-  readonly validationPhase?: TreeValidationPhase
   /** Action identity inherited by every commit in the current workflow. */
   readonly action?: TreeActionInfo
 }
@@ -39,8 +36,6 @@ export interface CommitContextPatch {
   readonly metadata?: unknown
   /** Replacement default provenance token. */
   readonly source?: SourceToken
-  /** Replacement default Schema lifecycle phase. */
-  readonly validationPhase?: TreeValidationPhase
   /** Replacement action identity for nested commits. */
   readonly action?: TreeActionInfo
 }
@@ -62,7 +57,6 @@ const mergeCommitContext = (
   ...property(current, patch, 'label'),
   ...property(current, patch, 'metadata'),
   ...property(current, patch, 'source'),
-  ...property(current, patch, 'validationPhase'),
   ...property(current, patch, 'action'),
 })
 

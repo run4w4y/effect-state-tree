@@ -8,12 +8,7 @@ import type {
 } from './errors'
 import { buildEntityIndex, entityKey } from './identity'
 import { type GetAtPathFailure, getAtPath } from './path'
-import {
-  entity,
-  type TreeSpec,
-  type TreeValue,
-  treeSchemaParseOptions,
-} from './spec'
+import { entity, type TreeSpec, type TreeValue } from './spec'
 
 type EntityIdKey<S extends Schema.Top> = {
   [K in keyof Schema.Schema.Type<S> & string]-?: Exclude<
@@ -125,7 +120,7 @@ export const resolveTreeRef = <
     const descriptor = reference[TreeRefTypeId]
     const decoded = SchemaParser.decodeUnknownResult(
       Schema.toType(descriptor.schema),
-      treeSchemaParseOptions('treeMutation', 'admission')
+      { errors: 'all', onExcessProperty: 'error' }
     )(value)
     if (Result.isFailure(decoded)) {
       return yield* Result.fail({

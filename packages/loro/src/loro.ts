@@ -538,7 +538,7 @@ const writeDocument = <S extends Schema.Constraint>(
   })
 
 /**
- * Creates an Effect Tree CRDT adapter backed by one Loro document root map.
+ * Creates an effect-state-tree CRDT adapter backed by one Loro document root map.
  *
  * The tree's decoded value is encoded through its Effect Schema before it is
  * materialized as Loro containers. Consequently rich Schema codecs remain at

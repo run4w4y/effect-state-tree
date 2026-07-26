@@ -16,36 +16,6 @@ export const AtomicAnnotationKey = '@effect-state-tree/atomic' as const
 /** Effect Schema annotation key used by CRDT adapters for native text nodes. */
 export const CollaborativeTextAnnotationKey =
   '@effect-state-tree/collaborative-text' as const
-/** Parse-option bridge used by lifecycle-aware Schema checks during tree admission. */
-export const TreeValidationPhaseOption =
-  '@effect-state-tree/validation-phase' as const
-/** Parse-option key distinguishing hard admission from sidecar diagnostics. */
-export const TreeValidationModeOption =
-  '@effect-state-tree/validation-mode' as const
-
-/** Lifecycle boundary at which the same Effect Schema is being interpreted. */
-export type TreeValidationPhase =
-  | 'externalDecode'
-  | 'construction'
-  | 'treeMutation'
-  | 'draft'
-  | 'persistence'
-  | 'replication'
-
-/** Whether lifecycle checks reject a value or collect reportable issues. */
-export type TreeValidationMode = 'admission' | 'diagnostic'
-
-/** Creates strict Effect Schema parse options for a tree lifecycle boundary. */
-export const treeSchemaParseOptions = (
-  phase: TreeValidationPhase,
-  mode: TreeValidationMode
-): SchemaAST.ParseOptions =>
-  ({
-    errors: 'all',
-    onExcessProperty: 'error',
-    [TreeValidationPhaseOption]: phase,
-    [TreeValidationModeOption]: mode,
-  }) as SchemaAST.ParseOptions
 
 /** Stable entity type and ID-property metadata stored on an Effect Schema. */
 export interface EntityAnnotation {

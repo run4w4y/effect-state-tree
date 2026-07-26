@@ -1,7 +1,23 @@
 {
   "name": "@effect-state-tree/persistence-browser",
   "version": "0.1.0",
+  "description": "LocalStorage, SessionStorage, and IndexedDB layers for effect-state-tree persistence.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/run4w4y/effect-state-tree.git",
+    "directory": "packages/persistence-browser"
+  },
+  "homepage": "https://github.com/run4w4y/effect-state-tree#readme",
+  "bugs": {
+    "url": "https://github.com/run4w4y/effect-state-tree/issues"
+  },
+  "keywords": [
+    "browser",
+    "effect",
+    "indexeddb",
+    "state-tree"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -13,11 +29,14 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "pack": "bun pm pack --destination ../../dist/packages"
+  },
   "dependencies": {
     "@effect-state-tree/persistence": "workspace:*"
   },
   "peerDependencies": {
-    "@effect/platform-browser": "4.0.0-beta.97",
-    "effect": "4.0.0-beta.97"
+    "@effect/platform-browser": "catalog:",
+    "effect": "catalog:"
   }
 }

@@ -70,7 +70,7 @@ export const App = ({
     <header {...stylex.props(styles.hero)}>
       <div>
         <span {...stylex.props(styles.eyebrow)}>
-          Effect Tree + Loro + Effect Socket
+          effect-state-tree + Loro + Effect Socket
         </span>
         <h1 {...stylex.props(styles.heading)}>
           One room. Any number of peers.

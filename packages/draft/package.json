@@ -1,7 +1,23 @@
 {
   "name": "@effect-state-tree/draft",
   "version": "0.1.0",
+  "description": "Validated working drafts with saved checkpoints, reset, refresh, and submission reconciliation.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/run4w4y/effect-state-tree.git",
+    "directory": "packages/draft"
+  },
+  "homepage": "https://github.com/run4w4y/effect-state-tree#readme",
+  "bugs": {
+    "url": "https://github.com/run4w4y/effect-state-tree/issues"
+  },
+  "keywords": [
+    "draft",
+    "effect",
+    "state-management",
+    "state-tree"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -13,11 +29,15 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "pack": "bun pm pack --destination ../../dist/packages"
+  },
   "dependencies": {
     "@effect-state-tree/core": "workspace:*",
-    "@effect-state-tree/runtime": "workspace:*"
+    "@effect-state-tree/runtime": "workspace:*",
+    "@effect-state-tree/validation": "workspace:*"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "catalog:"
   }
 }

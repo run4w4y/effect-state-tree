@@ -1,7 +1,23 @@
 {
   "name": "@effect-state-tree/producer",
   "version": "0.1.0",
+  "description": "Mutable-looking recipes that produce immutable effect-state-tree changes and semantic operations.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/run4w4y/effect-state-tree.git",
+    "directory": "packages/producer"
+  },
+  "homepage": "https://github.com/run4w4y/effect-state-tree#readme",
+  "bugs": {
+    "url": "https://github.com/run4w4y/effect-state-tree/issues"
+  },
+  "keywords": [
+    "effect",
+    "immutable-state",
+    "state-tree",
+    "typescript"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -13,11 +29,14 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "pack": "bun pm pack --destination ../../dist/packages"
+  },
   "dependencies": {
     "@effect-state-tree/core": "workspace:*",
     "immer": "11.1.11"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "catalog:"
   }
 }

@@ -28,7 +28,7 @@ import type { TodoSession, TodoSessionService } from './session'
 import { TodoTree } from './tree'
 
 /**
- * Derives all stable UI atoms from the admitted original and draft stores.
+ * Derives all stable UI atoms from the working and saved draft checkpoints.
  * React only consumes these atoms through Effect's official binding; the same
  * values remain usable by every other official Atom framework package.
  */
@@ -41,19 +41,9 @@ export const makeTodoAtoms = (
     session.draft.data,
     Layer.succeedContext(services)
   )
-  const draftDocument = tree.select((state) => state.document, {
-    paths: [['document']],
-  })
-  const originalDocument = tree.view(
-    session.original.select((state) => state.document, {
-      paths: [['document']],
-    })
-  )
-  const dirty = Atom.make((get) => {
-    get(draftDocument)
-    get(originalDocument)
-    return session.draft.isDirtyAt(['document'])
-  })
+  const draftState = tree.view(session.draft)
+  const savedRoot = Atom.make((get) => get(draftState).saved)
+  const dirty = Atom.make((get) => get(draftState).dirty)
 
   return {
     tree,
@@ -65,11 +55,7 @@ export const makeTodoAtoms = (
     draftVersion: tree.select(selectVersion, {
       paths: [['document', 'version']],
     }),
-    originalVersion: tree.view(
-      session.original.select(selectVersion, {
-        paths: [['document', 'version']],
-      })
-    ),
+    originalVersion: Atom.make((get) => selectVersion(get(savedRoot))),
     validation: tree.view(session.validation),
     history: tree.view(session.history),
     dirty,

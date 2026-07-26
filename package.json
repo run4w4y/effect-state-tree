@@ -2,31 +2,54 @@
   "name": "@effect-state-tree/source",
   "version": "0.1.0",
   "private": true,
+  "description": "An experimental Effect and Effect Schema state-tree workspace.",
   "type": "module",
   "packageManager": "bun@1.3.13",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/run4w4y/effect-state-tree.git"
+  },
+  "homepage": "https://github.com/run4w4y/effect-state-tree#readme",
+  "bugs": {
+    "url": "https://github.com/run4w4y/effect-state-tree/issues"
+  },
+  "keywords": [
+    "effect",
+    "effect-schema",
+    "state-management",
+    "state-tree",
+    "typescript"
+  ],
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
+  "catalog": {
+    "@effect/atom-react": "4.0.0-beta.99",
+    "@effect/platform-browser": "4.0.0-beta.99",
+    "@effect/platform-bun": "4.0.0-beta.99",
+    "effect": "4.0.0-beta.99"
+  },
   "scripts": {
     "build": "nx run-many -t build --parallel=6",
-    "format": "biome format --write apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
-    "format:check": "biome format --error-on-warnings apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
+    "format": "biome format --write .github apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
+    "format:check": "biome format --error-on-warnings .github apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
     "lint": "biome lint --error-on-warnings apps packages biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
     "lint:fix": "biome lint --write apps packages biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
-    "quality:biome": "biome ci --error-on-warnings apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
+    "quality:biome": "biome ci --error-on-warnings .github apps docs packages README.md biome.json nx.json package.json rslib.config.ts tsconfig.base.json tsconfig.json",
     "quality": "bun run quality:biome",
     "typecheck": "nx run-many -t typecheck --parallel=6",
     "test": "nx run-many -t test:unit --parallel=6",
     "test:e2e": "nx run-many -t test:e2e --parallel=2",
     "check": "bun run quality && bun run typecheck && bun run test && bun run build && bun run test:e2e",
-    "graph": "nx graph"
+    "graph": "nx graph",
+    "snapshot:pack": "nx run-many -t pack --projects=tag:npm:public --parallel=6"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
-    "@effect/atom-react": "4.0.0-beta.97",
-    "@effect/platform-browser": "4.0.0-beta.97",
-    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect/atom-react": "catalog:",
+    "@effect/platform-browser": "catalog:",
+    "@effect/platform-bun": "catalog:",
     "@nx/js": "21.2.1",
     "@nx/workspace": "21.2.1",
     "@playwright/test": "1.61.1",
@@ -37,7 +60,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "bun-types": "^1.3.14",
-    "effect": "4.0.0-beta.97",
+    "effect": "catalog:",
     "es-toolkit": "1.43.0",
     "fake-indexeddb": "6.2.5",
     "fast-check": "4.9.0",

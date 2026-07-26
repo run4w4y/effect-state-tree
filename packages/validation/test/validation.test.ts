@@ -1,51 +1,180 @@
 import { describe, expect, it } from 'bun:test'
-import { makeTreeSpec } from '@effect-state-tree/core'
 import { makeTreeStore } from '@effect-state-tree/runtime'
-import { Effect, Option, Schema, SchemaParser } from 'effect'
+import { Effect, Option, Result, Schema } from 'effect'
 import {
-  admissionGuard,
-  diagnosticCheck,
+  decodeWorkingTree,
   makeValidationController,
   makeValidationControllerScoped,
+  makeWorkingTreeSpec,
   type ValidationController,
   validateTree,
   validationIssuesAt,
   validationIssuesBelow,
 } from '../src/index'
 
-const Percentage = Schema.Number.check(
-  diagnosticCheck(
-    'percentage.range',
-    (value: number) => value >= 0 && value <= 100,
-    { expected: 'a percentage between 0 and 100' }
-  )
+const Percentage = Schema.Number.pipe(
+  Schema.check(Schema.makeFilter((value) => value >= 0 && value <= 100))
 )
 
 const State = Schema.Struct({
   percentage: Percentage,
   minimum: Schema.Number,
   maximum: Schema.Number,
-}).check(
-  diagnosticCheck('range.order', (value) =>
-    value.minimum <= value.maximum
-      ? undefined
-      : { path: ['maximum'], issue: 'maximum must not be below minimum' }
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((value) =>
+      value.minimum <= value.maximum
+        ? undefined
+        : { path: ['maximum'], issue: 'maximum must not be below minimum' }
+    )
   )
 )
 
-const spec = makeTreeSpec(State)
+describe('validated working trees', () => {
+  it('accepts check-invalid working values and retains the latest valid checkpoint', async () => {
+    const Document = Schema.Struct({
+      title: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+      untouched: Schema.Struct({ value: Schema.Number }),
+    })
+    const store = await Effect.runPromise(
+      makeTreeStore(makeWorkingTreeSpec(Document), {
+        title: 'Ready',
+        untouched: { value: 1 },
+      })
+    )
+    const validation = makeValidationController(Document, store)
+    const initialCheckpoint = Option.getOrThrow(validation.getValidated())
 
-describe('Schema lifecycle validation', () => {
-  it('stops observing commits when its surrounding Scope closes', async () => {
+    await Effect.runPromise(
+      store.update((state) => {
+        state.title = ''
+      })
+    )
+
+    expect(store.getSnapshot().title).toBe('')
+    expect(validation.getReport().status).toBe('invalid')
+    expect(validation.getReport().issues).toHaveLength(1)
+    expect(validation.getValidated()).toEqual(Option.some(initialCheckpoint))
+    expect(store.getSnapshot().untouched).toBe(
+      initialCheckpoint.snapshot.untouched
+    )
+    validation.dispose()
+  })
+
+  it('advances the validated pointer only when the complete revision passes', async () => {
+    const spec = makeWorkingTreeSpec(State)
     const store = await Effect.runPromise(
       makeTreeStore(spec, { percentage: 50, minimum: 0, maximum: 10 })
     )
-    let validation: ValidationController | undefined
+    const validation = makeValidationController(State, store)
+    const initial = Option.getOrThrow(validation.getValidated())
+
+    await Effect.runPromise(
+      store.update((state) => {
+        state.percentage = 150
+      })
+    )
+    expect(validation.getReport().status).toBe('invalid')
+    expect(Option.getOrThrow(validation.getValidated()).revision).toBe(
+      initial.revision
+    )
+
+    await Effect.runPromise(
+      store.update((state) => {
+        state.percentage = 75
+      })
+    )
+    expect(validation.getReport().status).toBe('valid')
+    expect(Option.getOrThrow(validation.getValidated())).toMatchObject({
+      revision: 2,
+      snapshot: { percentage: 75 },
+    })
+    validation.dispose()
+  })
+
+  it('continues to reject structural violations at the tree boundary', async () => {
+    const store = await Effect.runPromise(
+      makeTreeStore(makeWorkingTreeSpec(State), {
+        percentage: 50,
+        minimum: 0,
+        maximum: 10,
+      })
+    )
+
+    const structural = await Effect.runPromiseExit(
+      store.apply({
+        patches: {
+          forward: [
+            { op: 'replace', path: ['percentage'], value: 'not a number' },
+          ],
+          inverse: [],
+        },
+      })
+    )
+
+    expect(structural._tag).toBe('Failure')
+    expect(store.getSnapshot().percentage).toBe(50)
+  })
+
+  it('indexes native cross-field issues without custom annotations', () => {
+    const report = validateTree(
+      State,
+      { percentage: 50, minimum: 10, maximum: 0 },
+      7
+    )
+
+    expect(report.status).toBe('invalid')
+    expect(report.revision).toBe(7)
+    expect(report.issues).toHaveLength(1)
+    expect(validationIssuesAt(report, ['maximum'])[0]?.message).toContain(
+      'maximum'
+    )
+    expect(validationIssuesBelow(report, [])).toEqual(report.issues)
+  })
+
+  it('uses the encoded side as the honest working type', () => {
+    const Count = Schema.NumberFromString.pipe(
+      Schema.check(Schema.isGreaterThan(0))
+    )
+    const spec = makeWorkingTreeSpec(Count)
+
+    expect(spec.typeSchema.make('12')).toBe('12')
+    expect(decodeWorkingTree(Count, '12')).toEqual(Result.succeed(12))
+    expect(Result.isFailure(decodeWorkingTree(Count, 'nope'))).toBe(true)
+  })
+
+  it('retains checks declared on Union wrappers', () => {
+    const Choice = Schema.Union([
+      Schema.Struct({ _tag: Schema.Literal('a'), value: Schema.Number }),
+      Schema.Struct({ _tag: Schema.Literal('b'), value: Schema.Number }),
+    ]).pipe(Schema.check(Schema.makeFilter((value) => value.value > 0)))
+    const Document = Schema.Struct({ choice: Choice })
+    const report = validateTree(Document, {
+      choice: { _tag: 'a', value: -1 },
+    })
+
+    expect(report.status).toBe('invalid')
+    expect(report.issues).toEqual([
+      expect.objectContaining({
+        path: ['choice'],
+      }),
+    ])
+  })
+
+  it('stops observing commits when its surrounding Scope closes', async () => {
+    const store = await Effect.runPromise(
+      makeTreeStore(makeWorkingTreeSpec(State), {
+        percentage: 50,
+        minimum: 0,
+        maximum: 10,
+      })
+    )
+    let validation: ValidationController<typeof State> | undefined
 
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          validation = yield* makeValidationControllerScoped(store)
+          validation = yield* makeValidationControllerScoped(State, store)
           yield* store.update((state) => {
             state.percentage = 75
           })
@@ -62,128 +191,5 @@ describe('Schema lifecycle validation', () => {
     )
     expect(validation.getReport().revision).toBe(1)
     await Effect.runPromise(store.shutdown)
-  })
-
-  it('uses one Schema while allowing diagnostic intermediate domain values', async () => {
-    const external = SchemaParser.decodeUnknownResult(spec.typeSchema, {
-      errors: 'all',
-    })({ percentage: 150, minimum: 0, maximum: 10 })
-    expect(external._tag).toBe('Failure')
-
-    const store = await Effect.runPromise(
-      makeTreeStore(spec, { percentage: 50, minimum: 0, maximum: 10 })
-    )
-    const validation = makeValidationController(store)
-
-    const committed = await Effect.runPromise(
-      store.update(
-        (state) => {
-          state.percentage = 150
-        },
-        { guard: admissionGuard(spec) }
-      )
-    )
-
-    expect(committed._tag).toBe('Committed')
-    expect(store.getSnapshot().percentage).toBe(150)
-    expect(validation.getReport().issues).toEqual([
-      expect.objectContaining({
-        path: ['percentage'],
-        code: 'percentage.range',
-        severity: 'error',
-      }),
-    ])
-    validation.dispose()
-  })
-
-  it('rejects structural violations and phases configured as hard boundaries', async () => {
-    const store = await Effect.runPromise(
-      makeTreeStore(spec, { percentage: 50, minimum: 0, maximum: 10 })
-    )
-
-    const structural = await Effect.runPromiseExit(
-      store.apply(
-        {
-          patches: {
-            forward: [
-              { op: 'replace', path: ['percentage'], value: 'not a number' },
-            ],
-            inverse: [],
-          },
-        },
-        { guard: admissionGuard(spec) }
-      )
-    )
-    expect(structural._tag).toBe('Failure')
-    expect(store.getSnapshot().percentage).toBe(50)
-
-    const persistence = validateTree(
-      spec,
-      { percentage: 150, minimum: 0, maximum: 10 },
-      { phase: 'persistence', mode: 'admission' }
-    )
-    expect(Option.isSome(persistence.issue)).toBe(true)
-  })
-
-  it('retains native issue structure and indexes cross-field paths', () => {
-    const report = validateTree(
-      spec,
-      { percentage: 150, minimum: 10, maximum: 0 },
-      { phase: 'treeMutation' }
-    )
-    expect(
-      Option.isSome(report.issue) ? report.issue.value._tag : undefined
-    ).toBe('Composite')
-    expect(report.issues.map((issue) => issue.code).toSorted()).toEqual([
-      'percentage.range',
-      'range.order',
-    ])
-    expect(validationIssuesAt(report, ['maximum'])[0]?.message).toContain(
-      'maximum'
-    )
-    expect(
-      validationIssuesBelow(report, []).map((issue) => issue.code)
-    ).toEqual(report.issues.map((issue) => issue.code))
-  })
-
-  it('retains checks declared on Union wrappers', () => {
-    const Choice = Schema.Union([
-      Schema.Struct({ _tag: Schema.Literal('a'), value: Schema.Number }),
-      Schema.Struct({ _tag: Schema.Literal('b'), value: Schema.Number }),
-    ]).check(diagnosticCheck('choice.positive', (value) => value.value > 0))
-    const report = validateTree(
-      makeTreeSpec(Schema.Struct({ choice: Choice })),
-      { choice: { _tag: 'a' as const, value: -1 } }
-    )
-
-    expect(report.issues).toEqual([
-      expect.objectContaining({
-        path: ['choice'],
-        code: 'choice.positive',
-      }),
-    ])
-  })
-
-  it('interprets the lifecycle phase carried by each commit', async () => {
-    const store = await Effect.runPromise(
-      makeTreeStore(spec, { percentage: 50, minimum: 0, maximum: 10 })
-    )
-    const validation = makeValidationController(store)
-
-    await Effect.runPromise(
-      store.update(
-        (state) => {
-          state.percentage = 150
-        },
-        {
-          validationPhase: 'draft',
-          guard: admissionGuard(spec),
-        }
-      )
-    )
-
-    expect(validation.getReport().phase).toBe('draft')
-    expect(validation.getReport().issues[0]?.code).toBe('percentage.range')
-    validation.dispose()
   })
 })

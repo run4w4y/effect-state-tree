@@ -171,7 +171,7 @@ export const TodoEditor = ({
       </label>
       {titleIssues.map((issue) => (
         <p
-          key={`${issue.code ?? 'title'}:${issue.message}`}
+          key={`${JSON.stringify(issue.path)}:${issue.message}`}
           {...stylex.props(styles.issue)}
         >
           {issue.message}
@@ -193,7 +193,7 @@ export const TodoEditor = ({
       </label>
       {notesIssues.map((issue) => (
         <p
-          key={`${issue.code ?? 'notes'}:${issue.message}`}
+          key={`${JSON.stringify(issue.path)}:${issue.message}`}
           {...stylex.props(styles.issue)}
         >
           {issue.message}

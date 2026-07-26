@@ -1,5 +1,5 @@
 {
-  description = "Effect Tree State development shell";
+  description = "effect-state-tree development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -25,7 +25,7 @@
           ];
 
           shellHook = ''
-            export EFFECT_TREE_CHROME_PATH="${pkgs.chromium}/bin/chromium"
+            export EFFECT_STATE_TREE_CHROME_PATH="${pkgs.chromium}/bin/chromium"
             export NX_DAEMON=false
           '';
         };

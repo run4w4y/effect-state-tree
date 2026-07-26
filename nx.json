@@ -55,6 +55,10 @@
         "command": "biome lint --write {projectRoot}"
       }
     },
+    "pack": {
+      "cache": false,
+      "dependsOn": ["build"]
+    },
     "typecheck": {
       "cache": true,
       "dependsOn": ["^build", "^typecheck"],

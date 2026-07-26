@@ -6,7 +6,6 @@ import type {
   TreePatch,
   TreePath,
   TreeSpec,
-  TreeValidationPhase,
   TreeValue,
 } from '@effect-state-tree/core'
 import {
@@ -60,8 +59,6 @@ import { TreeStoreShutdownError } from './types'
 export interface TreeStoreOptions {
   /** Receives exceptions thrown by synchronous commit subscribers. */
   readonly onListenerError?: (error: unknown) => void
-  /** Default lifecycle phase for commits that do not provide one explicitly. */
-  readonly defaultValidationPhase?: TreeValidationPhase
 }
 
 const GuardNoChangeTypeId: unique symbol = Symbol(
@@ -249,12 +246,6 @@ export const makeTreeStore = <S extends Schema.Constraint>(
         )
         const source = commitOptions.source ?? inherited.source
         const action = inherited.action
-        const validationPhase =
-          commitOptions.validationPhase ??
-          inherited.validationPhase ??
-          options.defaultValidationPhase ??
-          'treeMutation'
-
         const attempt: Effect.Effect<
           CommitResult<S>,
           BuildError | TreeStoreShutdownError | E,
@@ -288,7 +279,6 @@ export const makeTreeStore = <S extends Schema.Constraint>(
               change,
               touchedPaths,
               tags,
-              validationPhase,
               ...(label !== undefined ? { label } : {}),
               ...(metadata !== undefined ? { metadata } : {}),
               ...(source !== undefined ? { source } : {}),

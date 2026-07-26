@@ -16,7 +16,6 @@ import {
   snapshotOptionsFor,
   type TreeSpec,
   type TreeValue,
-  treeSchemaParseOptions,
 } from './spec'
 
 const sameIdentity = (
@@ -156,14 +155,14 @@ export const reconcile = <S extends Schema.Constraint>(
   ) as TreeValue<S>
   const entities = buildEntityIndex(spec, reconciled)
   if (Result.isFailure(entities)) return Result.fail(entities.failure)
-  const structural = SchemaParser.decodeUnknownResult(
-    spec.typeSchema,
-    treeSchemaParseOptions('treeMutation', 'admission')
-  )(reconciled)
-  if (Result.isFailure(structural)) {
+  const decoded = SchemaParser.decodeUnknownResult(spec.typeSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(reconciled)
+  if (Result.isFailure(decoded)) {
     return Result.fail({
       _tag: 'SchemaAdmissionError',
-      issue: structural.failure,
+      issue: decoded.failure,
     })
   }
 

@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 const projectRoot = import.meta.dirname
 const frontendPort = 4311
 const apiPort = 4312
-const chromiumExecutable = process.env.EFFECT_TREE_CHROME_PATH
+const chromiumExecutable = process.env.EFFECT_STATE_TREE_CHROME_PATH
 
 export default defineConfig({
   testDir: './e2e',

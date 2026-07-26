@@ -1,8 +1,7 @@
-import {
-  type TreePatchError,
-  type TreeSpec,
-  type TreeValue,
-  treeSchemaParseOptions,
+import type {
+  TreePatchError,
+  TreeSpec,
+  TreeValue,
 } from '@effect-state-tree/core'
 import type {
   ChangeEnvelope,
@@ -185,10 +184,10 @@ const encodeSnapshot = <S extends Schema.Top>(
   snapshot: TreeValue<S>,
   revision: number
 ): Effect.Effect<Schema.Json, PersistenceEncodeError, S['EncodingServices']> =>
-  Schema.encodeUnknownEffect(
-    spec.jsonCodec,
-    treeSchemaParseOptions('persistence', 'admission')
-  )(snapshot).pipe(
+  Schema.encodeUnknownEffect(spec.jsonCodec, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(snapshot).pipe(
     Effect.mapError((cause) => new PersistenceEncodeError({ cause, revision }))
   )
 
@@ -197,10 +196,10 @@ const decodeSnapshot = <S extends Schema.Top>(
   encoded: unknown,
   version: number
 ): Effect.Effect<TreeValue<S>, PersistenceDecodeError, S['DecodingServices']> =>
-  Schema.decodeUnknownEffect(
-    spec.jsonCodec,
-    treeSchemaParseOptions('persistence', 'admission')
-  )(encoded).pipe(
+  Schema.decodeUnknownEffect(spec.jsonCodec, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(encoded).pipe(
     Effect.map((value) => value as TreeValue<S>),
     Effect.mapError((cause) => new PersistenceDecodeError({ cause, version }))
   )
@@ -267,7 +266,7 @@ const migrateEnvelope = <E, R>(
   })
 
 /**
- * Binds an Effect tree store to versioned durable storage for the current Scope.
+ * Binds an effect-state-tree store to versioned durable storage for the current Scope.
  *
  * Commits are subscribed synchronously before this Effect returns. A single
  * worker encodes and saves eligible snapshots exactly once in commit order.
@@ -322,7 +321,6 @@ export const bindPersistence = <
           source,
           tags: [PersistenceInboundTag, PersistenceSkipTag, 'history.skip'],
           label: 'Initialize from persistence',
-          validationPhase: 'persistence',
         })
         if (writeBackMigrations && envelope.version < version) {
           const state = yield* store.getState

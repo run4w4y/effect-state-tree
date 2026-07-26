@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from '@effect/atom-react'
-import type { DraftSynchronizationResult } from '@effect-state-tree/draft'
+import { DraftSynchronizationResult } from '@effect-state-tree/draft'
 import * as stylex from '@stylexjs/stylex'
 import { AsyncResult } from 'effect/unstable/reactivity'
 import { useState } from 'react'
@@ -110,16 +110,13 @@ const styles = stylex.create({
 const synchronizationMessage = (
   operation: 'Saved' | 'Reloaded',
   result: DraftSynchronizationResult<TodoDocument>
-): string => {
-  switch (result._tag) {
-    case 'Accepted':
-      return `${operation} and reconciled server version ${result.authoritative.version}.`
-    case 'AcceptedWithPendingChanges':
-      return `${operation} server version ${result.authoritative.version}; newer local changes remain in the draft.`
-    case 'Superseded':
-      return `${operation} response was superseded by a newer authoritative change.`
-  }
-}
+): string =>
+  DraftSynchronizationResult.$match(result, {
+    Accepted: ({ authoritative }) =>
+      `${operation} and reconciled server version ${authoritative.version}.`,
+    AcceptedWithPendingChanges: ({ authoritative }) =>
+      `${operation} server version ${authoritative.version}; newer local changes remain in the draft.`,
+  })
 
 export const TodoPage = ({ atoms }: { readonly atoms: TodoAtoms }) => {
   const [selectedTodoId, setSelectedTodoId] = useState<string | undefined>()
@@ -132,16 +129,14 @@ export const TodoPage = ({ atoms }: { readonly atoms: TodoAtoms }) => {
   const [saveResult, save] = useAtom(atoms.actions.save)
   const [reloadResult, reload] = useAtom(atoms.actions.reload)
   const [resetResult, reset] = useAtom(atoms.actions.reset)
-  const errorCount = validation.issues.filter(
-    (issue) => issue.severity === 'error'
-  ).length
+  const errorCount = validation.issues.length
 
   return (
     <main {...stylex.props(styles.page)}>
       <header {...stylex.props(styles.hero)}>
         <div>
           <span {...stylex.props(styles.eyebrow)}>
-            Effect Tree State + HttpApi
+            effect-state-tree + HttpApi
           </span>
           <h1 {...stylex.props(styles.title)}>
             Draft first.

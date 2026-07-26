@@ -1,451 +1,470 @@
 import type {
-  IdentityMismatchError,
   TreeInvariantError,
   TreePatchError,
+  TreeSpecOptions,
 } from '@effect-state-tree/core'
 import {
-  anchorPath,
   deepEqualSnapshot,
-  type GetAtPathFailure,
-  getAtPath,
-  resolveAnchoredPath,
+  reconcileTreeSnapshot,
   snapshotOptionsFor,
-  type TreePath,
-  type TreePathValue,
-  type TreeValue,
 } from '@effect-state-tree/core'
 import type {
   CommitResult,
-  ProposedCommit,
-  TreeCheckpoint,
-  TreeCheckpointError,
+  StoreView,
   TreeStore,
   TreeStoreShutdownError,
 } from '@effect-state-tree/runtime'
+import { makeTreeStore } from '@effect-state-tree/runtime'
 import {
-  makeTreeStore,
-  TreeCheckpointConflict,
-  withCommitTag,
-} from '@effect-state-tree/runtime'
-import { Data, Effect, Option, Result, type Schema, type Scope } from 'effect'
+  decodeWorkingTree,
+  decodeWorkingTreeStructure,
+  makeValidationController,
+  makeWorkingTreeSpec,
+  type ValidatedCheckpoint,
+  type ValidationController,
+  type ValidationReport,
+  validateTree,
+  type WorkingSchema,
+  type WorkingValue,
+} from '@effect-state-tree/validation'
+import {
+  Data,
+  Effect,
+  Option,
+  Queue,
+  Result,
+  type Schema,
+  type Scope,
+  Stream,
+} from 'effect'
+import { dual } from 'effect/Function'
 
-/** Commit tag applied when draft data is copied into its original tree. */
-export const DraftCommitTag = 'draft.commit' as const
-/** Commit tag applied when a draft is reset from its original tree. */
+/** Commit tag applied when a draft resets to its saved checkpoint. */
 export const DraftResetTag = 'draft.reset' as const
-/** Commit tag applied when a submission installs an authoritative value. */
+/** Commit tag applied when persistence accepts the current revision. */
 export const DraftAcceptedTag = 'draft.accepted' as const
-/** Commit tag applied when a refresh installs an authoritative value. */
+/** Commit tag applied when a clean draft installs an authoritative refresh. */
 export const DraftRefreshedTag = 'draft.refreshed' as const
 
-/** Failures possible while committing, resetting, or resolving a draft path. */
-export type DraftError =
-  | TreePatchError
-  | TreeStoreShutdownError
-  | IdentityMismatchError
-  | GetAtPathFailure
-
-/** A refresh cannot replace an editing path that was already modified. */
-export class DraftDirtyError extends Data.TaggedError('DraftDirtyError')<{
-  readonly path: TreePath
+/** The current working revision does not pass the draft's strict Schema. */
+export class DraftValidationError extends Data.TaggedError(
+  'DraftValidationError'
+)<{
+  readonly report: ValidationReport
 }> {}
 
-/** Failures possible while reconciling asynchronous draft synchronization. */
-export type DraftSynchronizationError =
-  | DraftError
-  | TreeCheckpointError
+/** An authoritative refresh cannot replace a working tree with pending edits. */
+export class DraftDirtyError extends Data.TaggedError('DraftDirtyError') {}
+
+class DraftRevisionConflict extends Data.TaggedError('DraftRevisionConflict')<{
+  readonly actual: number
+  readonly expected: number
+}> {}
+
+/** Failures possible while changing or synchronizing a validated draft. */
+export type DraftError =
   | DraftDirtyError
+  | DraftValidationError
+  | TreePatchError
+  | TreeStoreShutdownError
 
-/** Immutable values captured before a draft submission request starts. */
+/** Immutable values captured before a draft submission starts. */
 export interface DraftSubmissionContext<
-  S extends Schema.Constraint,
-  P extends TreePath,
+  S extends Schema.ConstraintDecoder<unknown>,
 > {
-  /** Original value at the submitted path when the request started. */
-  readonly original: TreePathValue<TreeValue<S>, P>
-  /** Draft value sent to the request. */
-  readonly submitted: TreePathValue<TreeValue<S>, P>
-  /** Complete original snapshot captured with `original`. */
-  readonly originalRoot: TreeValue<S>
-  /** Complete draft snapshot captured with `submitted`. */
-  readonly draft: TreeValue<S>
+  /** Strictly decoded value submitted to persistence. */
+  readonly submitted: S['Type']
+  /** Exact encoded working snapshot from the submitted revision. */
+  readonly working: WorkingValue<S>
+  /** Saved checkpoint current when the request started. */
+  readonly saved: WorkingValue<S>
+  /** Working-tree revision captured for stale-response reconciliation. */
+  readonly revision: number
 }
 
-/** Immutable values captured before a draft refresh request starts. */
-export interface DraftRefreshContext<
-  S extends Schema.Constraint,
-  P extends TreePath,
-> {
-  /** Original value at the refreshed path when the request started. */
-  readonly original: TreePathValue<TreeValue<S>, P>
-  /** Complete original snapshot captured with `original`. */
-  readonly originalRoot: TreeValue<S>
-  /** Complete clean draft snapshot captured before the request. */
-  readonly draft: TreeValue<S>
+/** Reconciliation policy for an expected authoritative submission failure. */
+export interface DraftSubmissionOptions<S extends Schema.Constraint, E> {
+  /** Extracts the authoritative encoded snapshot carried by a failure. */
+  readonly authoritativeFailure?: (error: E) => Option.Option<WorkingValue<S>>
 }
 
-/** Conflict reconciliation policy for an asynchronous draft submission. */
-export interface DraftSubmissionOptions<A, E> {
-  /** Extracts the server's authoritative value from an expected failure. */
-  readonly authoritativeFailure?: (error: E) => Option.Option<A>
-}
-
-/** Outcome of installing an authoritative submission or refresh response. */
-export type DraftSynchronizationResult<A> =
-  | {
-      /** Authoritative data updated both the original and the unchanged draft. */
-      readonly _tag: 'Accepted'
-      readonly authoritative: A
-    }
-  | {
-      /** The original updated, while newer draft edits were deliberately kept. */
-      readonly _tag: 'AcceptedWithPendingChanges'
-      readonly authoritative: A
-    }
-  | {
-      /** A newer original value made this response stale, so nothing changed. */
-      readonly _tag: 'Superseded'
-      readonly authoritative: A
-    }
-
-/** Same-Schema editing store with patch-based commit and synchronization tools. */
-export interface TreeDraft<S extends Schema.Constraint> {
-  /** Independent ordinary tree store using exactly the original Schema and IDs. */
-  readonly data: TreeStore<S>
-  /** Live target; drafts deliberately do not freeze a three-way merge base. */
-  readonly original: TreeStore<S>
-  /** Replaces the complete original snapshot with the current draft snapshot. */
-  readonly commit: Effect.Effect<
-    CommitResult<S>,
-    TreePatchError | TreeStoreShutdownError
-  >
-  /** Replaces the complete draft snapshot with the current original snapshot. */
-  readonly reset: Effect.Effect<
-    CommitResult<S>,
-    TreePatchError | TreeStoreShutdownError
-  >
-  /** Commits one identity-anchored draft path into the original tree. */
-  readonly commitAt: (
-    path: TreePath
-  ) => Effect.Effect<CommitResult<S>, DraftError>
-  /** Resets one identity-anchored draft path from the original tree. */
-  readonly resetAt: (
-    path: TreePath
-  ) => Effect.Effect<CommitResult<S>, DraftError>
-  /** Returns whether any draft value differs from the current original. */
-  readonly isDirty: () => boolean
-  /** Returns whether one identity-anchored path differs from the original. */
-  readonly isDirtyAt: (path: TreePath) => boolean
-  /**
-   * Sends a captured path value and reconciles the authoritative response.
-   *
-   * The request is interruptible. Successful reconciliation is atomic: a stale
-   * response cannot replace a newer original value, and edits made while the
-   * request is running remain in the draft.
-   */
-  readonly submitAt: <const P extends TreePath, E, R>(
-    path: P,
-    request: (
-      context: DraftSubmissionContext<S, P>
-    ) => Effect.Effect<TreePathValue<TreeValue<S>, P>, E, R>,
-    options?: DraftSubmissionOptions<TreePathValue<TreeValue<S>, P>, E>
-  ) => Effect.Effect<
-    DraftSynchronizationResult<TreePathValue<TreeValue<S>, P>>,
-    DraftSynchronizationError | E,
-    R
-  >
-  /**
-   * Loads an authoritative path into a clean draft and its original tree.
-   *
-   * A dirty draft fails with `DraftDirtyError`; edits made after the request
-   * starts are retained and reported as `AcceptedWithPendingChanges`.
-   */
-  readonly refreshAt: <const P extends TreePath, E, R>(
-    path: P,
-    request: (
-      context: DraftRefreshContext<S, P>
-    ) => Effect.Effect<TreePathValue<TreeValue<S>, P>, E, R>
-  ) => Effect.Effect<
-    DraftSynchronizationResult<TreePathValue<TreeValue<S>, P>>,
-    DraftSynchronizationError | E,
-    R
-  >
-}
-
-const resolvedValue = (
-  root: unknown,
-  path: TreePath
-): Effect.Effect<unknown, GetAtPathFailure> => {
-  const value = getAtPath(root, path)
-  return Effect.fromResult(value)
-}
-
-const anchoredGuard =
-  <S extends Schema.Constraint>(
-    store: TreeStore<S>,
-    anchored: ReturnType<typeof anchorPath>
-  ): ((proposal: ProposedCommit<S>) => Effect.Effect<void, DraftError>) =>
-  (proposal) => {
-    const resolved = resolveAnchoredPath(
-      store.spec,
-      proposal.before,
-      anchored,
-      { ignoreLastIdentity: true }
-    )
-    return Result.isSuccess(resolved)
-      ? Effect.void
-      : Effect.fail(resolved.failure)
+/** Outcome of reconciling one authoritative response with the working tree. */
+export type DraftSynchronizationResult<A> = Data.TaggedEnum<{
+  Accepted: {
+    readonly authoritative: A
   }
+  AcceptedWithPendingChanges: {
+    readonly authoritative: A
+  }
+}>
 
-/**
- * Clones a store into a same-Schema editing tree. Commit/reset operations are
- * expressed only in snapshots, patches, and identity-anchored paths, keeping
- * draft semantics entirely outside the kernel.
- */
-export const makeDraft = <S extends Schema.Constraint>(
-  original: TreeStore<S>
+interface DraftSynchronizationResultDefinition
+  extends Data.TaggedEnum.WithGenerics<1> {
+  readonly taggedEnum: DraftSynchronizationResult<this['A']>
+}
+
+const DraftSynchronizationResultVariants =
+  Data.taggedEnum<DraftSynchronizationResultDefinition>()
+
+const mapDraftSynchronizationResult: {
+  <A, B>(
+    f: (authoritative: A) => B
+  ): (self: DraftSynchronizationResult<A>) => DraftSynchronizationResult<B>
+  <A, B>(
+    self: DraftSynchronizationResult<A>,
+    f: (authoritative: A) => B
+  ): DraftSynchronizationResult<B>
+} = dual(
+  2,
+  <A, B>(
+    self: DraftSynchronizationResult<A>,
+    f: (authoritative: A) => B
+  ): DraftSynchronizationResult<B> => {
+    switch (self._tag) {
+      case 'Accepted':
+        return DraftSynchronizationResultVariants.Accepted({
+          authoritative: f(self.authoritative),
+        })
+      case 'AcceptedWithPendingChanges':
+        return DraftSynchronizationResultVariants.AcceptedWithPendingChanges({
+          authoritative: f(self.authoritative),
+        })
+    }
+  }
+)
+
+/** Constructors, guards, exhaustive matching, and payload mapping for outcomes. */
+export const DraftSynchronizationResult = {
+  Accepted: DraftSynchronizationResultVariants.Accepted,
+  AcceptedWithPendingChanges:
+    DraftSynchronizationResultVariants.AcceptedWithPendingChanges,
+  $is: DraftSynchronizationResultVariants.$is,
+  $match: DraftSynchronizationResultVariants.$match,
+  map: mapDraftSynchronizationResult,
+} as const
+
+/** Saved-checkpoint projection for one working draft. */
+export interface DraftState<S extends Schema.Constraint> {
+  /** Latest backend-accepted or refreshed encoded snapshot. */
+  readonly saved: WorkingValue<S>
+  /** Whether the working snapshot differs from `saved`. */
+  readonly dirty: boolean
+}
+
+/** One structurally editable tree with saved and latest-valid checkpoints. */
+export interface TreeDraft<S extends Schema.ConstraintDecoder<unknown>>
+  extends StoreView<DraftState<S>> {
+  /** Original strict Schema used to validate working revisions. */
+  readonly schema: S
+  /** Single check-tolerant working tree. */
+  readonly data: TreeStore<WorkingSchema<S>>
+  /** Strict native validation and latest-valid checkpoint controller. */
+  readonly validation: ValidationController<S>
+  /** Reads the latest saved encoded snapshot. */
+  readonly getSaved: () => WorkingValue<S>
+  /** Reads the latest completely valid working checkpoint. */
+  readonly getValidated: () => Option.Option<ValidatedCheckpoint<S>>
+  /** Returns whether the working snapshot differs from the saved checkpoint. */
+  readonly isDirty: () => boolean
+  /** Resets the working tree to the saved checkpoint. */
+  readonly reset: Effect.Effect<
+    CommitResult<WorkingSchema<S>>,
+    TreePatchError | TreeStoreShutdownError
+  >
+  /** Installs a strict authoritative snapshot when the draft is clean. */
+  readonly refresh: (
+    authoritative: WorkingValue<S>
+  ) => Effect.Effect<CommitResult<WorkingSchema<S>>, DraftError>
+  /** Strictly submits the current revision and reconciles the response. */
+  readonly submit: <E, R>(
+    request: (
+      context: DraftSubmissionContext<S>
+    ) => Effect.Effect<WorkingValue<S>, E, R>,
+    options?: DraftSubmissionOptions<S, E>
+  ) => Effect.Effect<
+    DraftSynchronizationResult<WorkingValue<S>>,
+    DraftError | E,
+    R
+  >
+  /** Releases validation and draft-state subscriptions. */
+  readonly dispose: () => void
+}
+
+/** Allocates one structurally shared working tree and its validation sidecar. */
+export const makeDraft = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  initial: unknown,
+  options: TreeSpecOptions = {}
 ): Effect.Effect<TreeDraft<S>, TreeInvariantError> =>
   Effect.gen(function* () {
-    const data = yield* makeTreeStore(original.spec, original.getSnapshot(), {
-      defaultValidationPhase: 'draft',
+    const spec = makeWorkingTreeSpec(schema, options)
+    const admittedInitial = yield* Effect.fromResult(
+      Result.mapError(decodeWorkingTreeStructure(schema, initial), (issue) => ({
+        _tag: 'SchemaAdmissionError' as const,
+        issue,
+      }))
+    )
+    const data = yield* makeTreeStore(spec, admittedInitial)
+    const validation = makeValidationController(schema, data)
+    let saved = data.getSnapshot()
+    let disposed = false
+    const listeners = new Set<() => void>()
+
+    const isDirty = () =>
+      !deepEqualSnapshot(
+        data.getSnapshot(),
+        saved,
+        snapshotOptionsFor(data.spec)
+      )
+
+    const getState = (): DraftState<S> => ({
+      saved,
+      dirty: isDirty(),
     })
 
-    const applyAuthoritative = <const P extends TreePath>(
-      originalCheckpoint: TreeCheckpoint<S, P>,
-      draftCheckpoint: TreeCheckpoint<S, P>,
-      authoritative: TreePathValue<TreeValue<S>, P>,
-      tag: typeof DraftAcceptedTag | typeof DraftRefreshedTag
-    ): Effect.Effect<
-      DraftSynchronizationResult<TreePathValue<TreeValue<S>, P>>,
-      TreePatchError | TreeStoreShutdownError | TreeCheckpointError
-    > =>
-      Effect.uninterruptible(
-        Effect.gen(function* () {
-          const originalResult = yield* Effect.result(
-            original.replaceAtCheckpoint(originalCheckpoint, authoritative, {
-              label: 'Accept authoritative draft value',
-              tags: [tag],
-              validationPhase: 'draft',
-            })
-          )
-          if (Result.isFailure(originalResult)) {
-            if (originalResult.failure instanceof TreeCheckpointConflict) {
-              return {
-                _tag: 'Superseded',
-                authoritative,
-              }
-            }
-            return yield* Effect.fail(originalResult.failure)
-          }
-
-          const draftResult = yield* Effect.result(
-            data.replaceAtCheckpoint(draftCheckpoint, authoritative, {
-              label: 'Reconcile accepted draft value',
-              tags: [tag],
-              validationPhase: 'draft',
-            })
-          )
-          if (Result.isFailure(draftResult)) {
-            if (draftResult.failure instanceof TreeCheckpointConflict) {
-              return {
-                _tag: 'AcceptedWithPendingChanges',
-                authoritative,
-              }
-            }
-            return yield* Effect.fail(draftResult.failure)
-          }
-
-          return { _tag: 'Accepted', authoritative }
-        })
-      )
-
-    const reconcileFailure = <const P extends TreePath, E>(
-      checkpoint: TreeCheckpoint<S, P>,
-      error: E,
-      options:
-        | DraftSubmissionOptions<TreePathValue<TreeValue<S>, P>, E>
-        | undefined
-    ): Effect.Effect<never, E | DraftSynchronizationError> => {
-      const authoritative = options?.authoritativeFailure?.(error)
-      if (authoritative === undefined || Option.isNone(authoritative)) {
-        return Effect.fail(error)
-      }
-
-      return Effect.uninterruptible(
-        Effect.gen(function* () {
-          const installed = yield* Effect.result(
-            original.replaceAtCheckpoint(checkpoint, authoritative.value, {
-              label: 'Reconcile authoritative draft failure',
-              tags: [DraftRefreshedTag],
-              validationPhase: 'draft',
-            })
-          )
-          if (
-            Result.isFailure(installed) &&
-            !(installed.failure instanceof TreeCheckpointConflict)
-          ) {
-            return yield* Effect.fail(installed.failure)
-          }
-          return yield* Effect.fail(error)
-        })
-      )
+    const notify = () => {
+      for (const listener of [...listeners]) listener()
     }
 
-    const commit = Effect.suspend(() =>
-      withCommitTag(
-        original.replace(data.getSnapshot(), {
-          label: 'Draft commit',
-          validationPhase: 'draft',
-        }),
-        DraftCommitTag
-      )
-    )
+    const stopObservingData = data.subscribe(() => notify())
 
-    const reset = Effect.suspend(() =>
-      withCommitTag(
-        data.replace(original.getSnapshot(), {
-          label: 'Draft reset',
-          validationPhase: 'draft',
-        }),
-        DraftResetTag
-      )
-    )
+    const subscribe = (listener: () => void): (() => void) => {
+      if (disposed) return () => {}
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }
 
-    return {
-      data,
-      original,
-      commit,
-      reset,
-      commitAt(path) {
-        return Effect.gen(function* () {
-          const draftSnapshot = data.getSnapshot()
-          const anchored = anchorPath(original.spec, draftSnapshot, path)
-          const value = yield* resolvedValue(draftSnapshot, path)
-          return yield* withCommitTag(
-            original.apply(
-              {
-                patches: {
-                  forward: [{ op: 'replace', path, value }],
-                  inverse: [],
-                },
-              },
-              {
-                label: 'Draft partial commit',
-                validationPhase: 'draft',
-                guard: anchoredGuard(original, anchored),
-              }
-            ),
-            DraftCommitTag
-          )
-        })
-      },
-      resetAt(path) {
-        return Effect.gen(function* () {
-          const originalSnapshot = original.getSnapshot()
-          const anchored = anchorPath(original.spec, originalSnapshot, path)
-          const value = yield* resolvedValue(originalSnapshot, path)
-          return yield* withCommitTag(
-            data.apply(
-              {
-                patches: {
-                  forward: [{ op: 'replace', path, value }],
-                  inverse: [],
-                },
-              },
-              {
-                label: 'Draft partial reset',
-                validationPhase: 'draft',
-                guard: anchoredGuard(data, anchored),
-              }
-            ),
-            DraftResetTag
-          )
-        })
-      },
-      isDirty: () =>
-        !deepEqualSnapshot(
-          data.getSnapshot(),
-          original.getSnapshot(),
-          snapshotOptionsFor(original.spec)
-        ),
-      isDirtyAt(path) {
-        const draftSnapshot = data.getSnapshot()
-        const draftValue = getAtPath(draftSnapshot, path)
-        if (Result.isFailure(draftValue)) return true
-        const anchored = anchorPath(original.spec, draftSnapshot, path)
-        const originalValue = resolveAnchoredPath(
-          original.spec,
-          original.getSnapshot(),
-          anchored,
-          { ignoreLastIdentity: true }
-        )
-        return (
-          Result.isFailure(originalValue) ||
-          !deepEqualSnapshot(
-            draftValue.success,
-            originalValue.success,
-            snapshotOptionsFor(original.spec)
-          )
-        )
-      },
-      submitAt(path, request, options) {
-        return Effect.gen(function* () {
-          const originalCheckpoint = yield* original.checkpoint(path)
-          const draftCheckpoint = yield* data.checkpoint(path)
-          const response = yield* Effect.result(
-            request({
-              original: originalCheckpoint.value,
-              submitted: draftCheckpoint.value,
-              originalRoot: originalCheckpoint.snapshot,
-              draft: draftCheckpoint.snapshot,
+    const setSaved = (snapshot: WorkingValue<S>): void => {
+      saved = snapshot
+      notify()
+    }
+
+    const strictReport = (
+      snapshot: WorkingValue<S>,
+      revision: number
+    ): ValidationReport => validateTree(schema, snapshot, revision)
+
+    const requireValid = (
+      snapshot: WorkingValue<S>,
+      revision: number
+    ): Effect.Effect<S['Type'], DraftValidationError> => {
+      const decoded = decodeWorkingTree(schema, snapshot)
+      return Result.isSuccess(decoded)
+        ? Effect.succeed(decoded.success)
+        : Effect.fail(
+            new DraftValidationError({
+              report:
+                revision === data.getRevision() &&
+                Object.is(snapshot, data.getSnapshot())
+                  ? validation.getReport()
+                  : strictReport(snapshot, revision),
             })
           )
-          if (Result.isFailure(response)) {
-            return yield* reconcileFailure(
-              originalCheckpoint,
-              response.failure,
-              options
-            )
-          }
-          return yield* applyAuthoritative(
-            originalCheckpoint,
-            draftCheckpoint,
-            response.success,
-            DraftAcceptedTag
-          )
+    }
+
+    const reconcileAuthoritative = (
+      base: WorkingValue<S>,
+      authoritative: WorkingValue<S>,
+      revision: number
+    ) =>
+      Effect.gen(function* () {
+        yield* requireValid(authoritative, revision)
+        return yield* Effect.fromResult(
+          reconcileTreeSnapshot(data.spec, base, authoritative)
+        )
+      })
+
+    const reset = Effect.suspend(() =>
+      data
+        .replace(saved, {
+          label: 'Reset draft to saved checkpoint',
+          tags: [DraftResetTag],
         })
-      },
-      refreshAt(path, request) {
-        return Effect.gen(function* () {
-          const originalCheckpoint = yield* original.checkpoint(path)
-          const draftCheckpoint = yield* data.checkpoint(path)
-          if (
-            !deepEqualSnapshot(
-              originalCheckpoint.value,
-              draftCheckpoint.value,
-              snapshotOptionsFor(original.spec)
-            )
-          ) {
-            return yield* Effect.fail(new DraftDirtyError({ path }))
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              setSaved(data.getSnapshot())
+            })
+          )
+        )
+    )
+
+    const refresh = (
+      authoritative: WorkingValue<S>
+    ): Effect.Effect<CommitResult<WorkingSchema<S>>, DraftError> =>
+      Effect.gen(function* () {
+        if (isDirty()) return yield* new DraftDirtyError()
+        const revision = data.getRevision()
+        const before = data.getSnapshot()
+        const reconciled = yield* reconcileAuthoritative(
+          before,
+          authoritative,
+          revision
+        )
+        if (reconciled.patchSet.forward.length === 0) {
+          if (data.getRevision() !== revision) {
+            return yield* new DraftDirtyError()
           }
-          const authoritative = yield* request({
-            original: originalCheckpoint.value,
-            originalRoot: originalCheckpoint.snapshot,
-            draft: draftCheckpoint.snapshot,
+          setSaved(reconciled.snapshot)
+          return {
+            _tag: 'NoChange' as const,
+            revision,
+            snapshot: reconciled.snapshot,
+          }
+        }
+        const result = yield* data
+          .apply(
+            {
+              patches: reconciled.patchSet,
+            },
+            {
+              label: 'Install authoritative draft refresh',
+              tags: [DraftRefreshedTag],
+              guard: (proposal) =>
+                proposal.revisionBefore === revision
+                  ? Effect.void
+                  : Effect.fail(
+                      new DraftRevisionConflict({
+                        actual: proposal.revisionBefore,
+                        expected: revision,
+                      })
+                    ),
+            }
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof DraftRevisionConflict
+                ? new DraftDirtyError()
+                : error
+            )
+          )
+        setSaved(data.getSnapshot())
+        return result
+      })
+
+    const submit: TreeDraft<S>['submit'] = (request, options) =>
+      Effect.gen(function* () {
+        const revision = data.getRevision()
+        const working = data.getSnapshot()
+        const savedAtRequest = saved
+        const submitted = yield* requireValid(working, revision)
+        const response = yield* Effect.result(
+          request({
+            submitted,
+            working,
+            saved: savedAtRequest,
+            revision,
           })
-          return yield* applyAuthoritative(
-            originalCheckpoint,
-            draftCheckpoint,
-            authoritative,
-            DraftRefreshedTag
+        )
+        if (Result.isFailure(response)) {
+          const authoritative = options?.authoritativeFailure?.(
+            response.failure
           )
+          if (authoritative !== undefined && Option.isSome(authoritative)) {
+            const reconciled = yield* reconcileAuthoritative(
+              working,
+              authoritative.value,
+              revision
+            )
+            setSaved(reconciled.snapshot)
+          }
+          return yield* Effect.fail(response.failure)
+        }
+        const authoritative = response.success
+        const reconciled = yield* reconcileAuthoritative(
+          working,
+          authoritative,
+          revision
+        )
+        const authoritativeSnapshot = reconciled.snapshot
+
+        if (data.getRevision() !== revision) {
+          setSaved(authoritativeSnapshot)
+          return DraftSynchronizationResult.AcceptedWithPendingChanges({
+            authoritative: authoritativeSnapshot,
+          })
+        }
+
+        if (reconciled.patchSet.forward.length === 0) {
+          setSaved(authoritativeSnapshot)
+          return DraftSynchronizationResult.Accepted({
+            authoritative: authoritativeSnapshot,
+          })
+        }
+
+        const installed = yield* Effect.result(
+          data.apply(
+            { patches: reconciled.patchSet },
+            {
+              label: 'Install accepted authoritative draft',
+              tags: [DraftAcceptedTag],
+              guard: (proposal) =>
+                proposal.revisionBefore === revision
+                  ? Effect.void
+                  : Effect.fail(
+                      new DraftRevisionConflict({
+                        actual: proposal.revisionBefore,
+                        expected: revision,
+                      })
+                    ),
+            }
+          )
+        )
+        if (Result.isFailure(installed)) {
+          if (installed.failure instanceof DraftRevisionConflict) {
+            setSaved(authoritativeSnapshot)
+            return DraftSynchronizationResult.AcceptedWithPendingChanges({
+              authoritative: authoritativeSnapshot,
+            })
+          }
+          return yield* Effect.fail(installed.failure)
+        }
+
+        setSaved(data.getSnapshot())
+        return DraftSynchronizationResult.Accepted({
+          authoritative: data.getSnapshot(),
         })
-      },
+      })
+
+    const dispose = (): void => {
+      if (disposed) return
+      disposed = true
+      stopObservingData()
+      validation.dispose()
+      listeners.clear()
+    }
+
+    return {
+      schema,
+      data,
+      validation,
+      getSaved: () => saved,
+      getValidated: validation.getValidated,
+      isDirty,
+      getSnapshot: getState,
+      subscribe,
+      changes: Stream.callback((queue) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            Queue.offerUnsafe(queue, getState())
+            return subscribe(() => Queue.offerUnsafe(queue, getState()))
+          }),
+          (unsubscribe) => Effect.sync(unsubscribe)
+        )
+      ),
+      reset,
+      refresh,
+      submit,
+      dispose,
     }
   })
 
-/** Allocates a draft whose editing store closes with the surrounding Scope. */
-export const makeDraftScoped = <S extends Schema.Constraint>(
-  original: TreeStore<S>
+/** Allocates a validated draft for the surrounding Effect Scope. */
+export const makeDraftScoped = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  initial: unknown,
+  options: TreeSpecOptions = {}
 ): Effect.Effect<TreeDraft<S>, TreeInvariantError, Scope.Scope> =>
-  Effect.acquireRelease(makeDraft(original), (draft) => draft.data.shutdown)
+  Effect.acquireRelease(makeDraft(schema, initial, options), (draft) =>
+    Effect.sync(draft.dispose).pipe(Effect.andThen(draft.data.shutdown))
+  )

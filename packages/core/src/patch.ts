@@ -315,7 +315,9 @@ export const applyPatches = <A>(
   patches: ReadonlyArray<TreePatch>,
   options: SnapshotOptions = {}
 ): Result.Result<AppliedPatches<A>, TreePatchError> => {
-  let current: unknown = snapshot
+  const base = captureSnapshot(snapshot, options)
+  if (Result.isFailure(base)) return Result.fail(base.failure)
+  let current: unknown = base.success
   const forward: Array<TreePatch> = []
   const inverse: Array<TreePatch> = []
 

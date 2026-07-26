@@ -106,8 +106,6 @@ export type {
   SchemaWalkEntry,
   TreeSpec,
   TreeSpecOptions,
-  TreeValidationMode,
-  TreeValidationPhase,
   TreeValue,
 } from './spec'
 export {
@@ -123,10 +121,7 @@ export {
   schemaAstAt,
   schemaAstsAt,
   snapshotOptionsFor,
-  TreeValidationModeOption,
-  TreeValidationPhaseOption,
   treeAnnotationAt,
-  treeSchemaParseOptions,
   walkSchemaValue,
 } from './spec'
 export type { AdmittedTree } from './tree'

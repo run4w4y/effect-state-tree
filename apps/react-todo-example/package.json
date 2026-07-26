@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@effect/atom-react": "4.0.0-beta.97",
-    "@effect/platform-browser": "4.0.0-beta.97",
-    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect/atom-react": "catalog:",
+    "@effect/platform-browser": "catalog:",
+    "@effect/platform-bun": "catalog:",
     "@effect-state-tree/core": "workspace:*",
     "@effect-state-tree/draft": "workspace:*",
     "@effect-state-tree/history": "workspace:*",
@@ -15,7 +15,7 @@
     "@effect-state-tree/test-infrastructure": "workspace:*",
     "@effect-state-tree/validation": "workspace:*",
     "@stylexjs/stylex": "0.19.0",
-    "effect": "4.0.0-beta.97",
+    "effect": "catalog:",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "scheduler": "0.27.0"

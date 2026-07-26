@@ -5,7 +5,6 @@ import type {
   TreePath,
   TreePathValue,
   TreeSpec,
-  TreeValidationPhase,
   TreeValue,
 } from '@effect-state-tree/core'
 import type {
@@ -64,8 +63,6 @@ export interface ChangeEnvelope<S extends Schema.Constraint> {
   readonly tags: HashSet.HashSet<string>
   /** Millisecond timestamp captured from the Effect Clock after commit. */
   readonly committedAt: number
-  /** Schema lifecycle phase used to admit the committed snapshot. */
-  readonly validationPhase: TreeValidationPhase
   /** Optional human-readable commit label. */
   readonly label?: string
   /** Optional immutable application metadata. */
@@ -92,8 +89,6 @@ export interface ProposedCommit<S extends Schema.Constraint> {
   readonly touchedPaths: ReadonlyArray<TreePath>
   /** Operational tags that would be published with the commit. */
   readonly tags: HashSet.HashSet<string>
-  /** Schema lifecycle phase selected for admission. */
-  readonly validationPhase: TreeValidationPhase
   /** Optional human-readable commit label. */
   readonly label?: string
   /** Optional immutable application metadata. */
@@ -151,8 +146,6 @@ export interface CommitOptions<
   readonly source?: SourceToken
   /** Additional operational tags unioned with inherited context tags. */
   readonly tags?: Iterable<string>
-  /** Selects lifecycle-aware Schema checks for this commit. */
-  readonly validationPhase?: TreeValidationPhase
   /** Retry-safe policy evaluated against the final transactional proposal. */
   readonly guard?: CommitGuard<S, E, R>
 }

@@ -1,42 +1,105 @@
-# Validation
+# Validation and editable state
 
-Effect Schema is the only validation language. Effect Tree adds lifecycle
-metadata to native v4 Schema filters; it does not introduce a second model or a
-parallel validator DSL.
+effect-state-tree uses Effect Schema as its only validation language. It does
+not add a second rule format for forms or drafts.
+
+Editable state creates an important distinction:
+
+- the tree must always have the correct structure;
+- ordinary Schema checks may be temporarily invalid while a person edits it.
+
+For example, a form can hold `-1` while someone is replacing an age, but it
+cannot turn the age field into an object or introduce an unknown property.
+
+## Working trees
+
+`makeWorkingTreeSpec` derives an editable specification from the encoded side of
+the original Schema:
 
 ```ts
-const Percentage = Schema.Number.check(
-  diagnosticCheck(
-    'percentage.range',
-    (value: number) => value >= 0 && value <= 100
+import { makeTreeStore } from '@effect-state-tree/runtime'
+import {
+  makeValidationController,
+  makeWorkingTreeSpec,
+} from '@effect-state-tree/validation'
+import { Effect, Schema } from 'effect'
+
+const Profile = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Number.pipe(
+    Schema.check(Schema.makeFilter((age) => age >= 0))
+  ),
+})
+
+const program = Effect.gen(function* () {
+  const store = yield* makeTreeStore(
+    makeWorkingTreeSpec(Profile),
+    { name: 'Ada', age: -1 }
   )
-)
+  const validation = makeValidationController(Profile, store)
+
+  const report = validation.getReport()
+  const ageIssues = validation.issuesAt(['age'])
+
+  return { report, ageIssues }
+})
 ```
 
-An unannotated check such as `Schema.Int` is a hard admission constraint. A
-lifecycle-aware diagnostic check can be configured per phase as `reject`,
-`report`, or `skip`:
+The working tree skips ordinary checks when admitting edits, while retaining
+the Schema's structural rules. The validation controller strictly checks every
+committed revision against the original Schema.
 
-- external decoding and construction normally reject;
-- live tree mutation and drafts may commit and report;
-- persistence normally rejects;
-- replication may report according to policy.
+## Reports and checkpoints
 
-The full native `SchemaIssue.Issue` is retained, including `AnyOf`, `Composite`,
-`Pointer`, and `Filter` relationships. A derived path index supports UI queries
-without flattening away union or parent/child meaning.
+A validation report has a revision and a `valid` or `invalid` status. It retains
+the original Effect Schema issue tree and also provides a path index for user
+interfaces:
 
-Validation reports are ordinary values. Framework adapters subscribe to a
-`ValidationController` through the generic `StoreView` protocol, then use the
-framework-neutral `validationIssuesAt(report, path)` or
-`validationIssuesBelow(report, path)` helpers. Validation therefore does not
-add dependencies or plugin-specific hooks to any frontend package.
+```ts
+const current = validation.getReport()
+const titleIssues = validation.issuesAt(['title'])
+const sectionIssues = validation.issuesBelow(['sections', 0])
+```
 
-Structural type mismatches, excess properties, invalid paths, duplicate entity
-IDs, identity mutation, aliases, and unsafe mutable atomic objects never become
-soft diagnostics; the kernel rejects them.
+When a complete revision is valid, the controller records it as the latest
+validated checkpoint. A later invalid edit does not discard that checkpoint.
+This lets an application distinguish:
 
-Effect v4 filter checks are synchronous. Schema encoding and decoding may still
-require Effect services and are run as Effects at persistence and CRDT
-boundaries. A future Effect v4 facility for effectful native checks can be added
-without changing the one-Schema lifecycle model.
+- the value currently being edited;
+- the most recent value known to satisfy the complete Schema.
+
+## Drafts
+
+`makeDraft` combines a working tree, validation controller, and saved
+checkpoint:
+
+```ts
+import { makeDraft } from '@effect-state-tree/draft'
+
+const draft = yield* makeDraft(Profile, {
+  name: 'Ada',
+  age: 36,
+})
+
+const report = draft.validation.getReport()
+const dirty = draft.isDirty()
+```
+
+A draft can reset to its saved value, accept an authoritative refresh while
+clean, or submit its current valid revision. If local edits occur while a
+request is in flight, response reconciliation preserves those newer edits
+instead of silently overwriting them.
+
+## Hard tree errors
+
+Some failures are never treated as editable validation issues. The tree rejects
+them immediately:
+
+- structural type mismatches and excess properties;
+- invalid paths or patch preconditions;
+- duplicate entity IDs or identity changes;
+- the same object attached at multiple paths;
+- unsupported mutable native values.
+
+This boundary ensures that every working revision remains safe to patch,
+compare, reconcile, and observe even when ordinary domain checks are failing.

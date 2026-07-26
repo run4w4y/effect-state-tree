@@ -9,22 +9,20 @@ import {
   type HistoryController,
   makeHistoryScoped,
 } from '@effect-state-tree/history'
-import type { TreeStore } from '@effect-state-tree/runtime'
-import {
-  makeValidationControllerScoped,
-  type ValidationController,
+import type {
+  ValidationController,
+  WorkingSchema,
 } from '@effect-state-tree/validation'
 import { Context, Effect, Layer } from 'effect'
 
-import { initialTodoApp, type TodoApp } from '../../shared/todo'
+import { initialTodoApp, TodoApp } from '../../shared/todo'
 import { TodoTree } from './tree'
 
 export interface TodoSessionService {
   readonly documentId: string
-  readonly original: TreeStore<typeof TodoApp>
   readonly draft: TreeDraft<typeof TodoApp>
-  readonly history: HistoryController<typeof TodoApp>
-  readonly validation: ValidationController
+  readonly history: HistoryController<WorkingSchema<typeof TodoApp>>
+  readonly validation: ValidationController<typeof TodoApp>
 }
 
 export class TodoSession extends Context.Service<
@@ -36,23 +34,17 @@ export const TodoSessionLive = (documentId: string) => {
   const session = Layer.effect(
     TodoSession,
     Effect.gen(function* () {
-      const original = yield* TodoTree.makeScoped(initialTodoApp)
-      const draft = yield* makeDraftScoped(original)
+      const draft = yield* makeDraftScoped(TodoApp, initialTodoApp)
       const history = yield* makeHistoryScoped(draft.data, {
         limit: 100,
         baselineTags: [DraftAcceptedTag, DraftRefreshedTag, DraftResetTag],
       })
-      const validation = yield* makeValidationControllerScoped(
-        draft.data,
-        'draft'
-      )
 
       return TodoSession.of({
         documentId,
-        original,
         draft,
         history,
-        validation,
+        validation: draft.validation,
       })
     })
   )

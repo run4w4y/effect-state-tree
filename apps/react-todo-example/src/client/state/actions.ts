@@ -1,15 +1,14 @@
 import {
-  validateTree,
-  validationIssuesBelow,
-} from '@effect-state-tree/validation'
+  DraftDirtyError,
+  DraftSynchronizationResult,
+} from '@effect-state-tree/draft'
 import { Effect, Option } from 'effect'
 
 import type { Todo, TodoFilter, TodoPriority } from '../../shared/todo'
 import { TodoConflict } from '../../shared/todo-api'
 import { TodoApiClient } from '../api'
-import { TodoDraftInvalidError } from './errors'
 import { TodoSession } from './session'
-import { TodoTree, todoSpec } from './tree'
+import { TodoTree } from './tree'
 import {
   changeFilter as changeFilterUpdate,
   editTodo as editTodoUpdate,
@@ -21,9 +20,24 @@ import {
 const refreshTodoDocument = () =>
   Effect.gen(function* () {
     const session = yield* TodoSession
+    if (session.draft.isDirty()) return yield* new DraftDirtyError()
+
     const client = yield* TodoApiClient
-    return yield* session.draft.refreshAt(['document'], () =>
-      client.todoDocuments.get({ params: { id: session.documentId } })
+    const refreshed = yield* session.draft.submit(({ submitted }) =>
+      client.todoDocuments
+        .get({
+          params: { id: session.documentId },
+        })
+        .pipe(
+          Effect.map((document) => ({
+            ...submitted,
+            document,
+          }))
+        )
+    )
+    return DraftSynchronizationResult.map(
+      refreshed,
+      (authoritative) => authoritative.document
     )
   })
 
@@ -42,40 +56,41 @@ export const saveTodoDocument = TodoTree.action('Todo.save', () =>
     const session = yield* TodoSession
     const client = yield* TodoApiClient
 
-    return yield* session.draft.submitAt(
-      ['document'],
-      ({ draft, original, submitted }) =>
-        Effect.gen(function* () {
-          const issues = validationIssuesBelow(
-            validateTree(todoSpec, draft, { phase: 'draft' }),
-            ['document']
-          ).filter((issue) => issue.severity === 'error')
-          if (issues.length > 0) {
-            return yield* new TodoDraftInvalidError({
-              issueCount: issues.length,
-            })
-          }
-
-          return yield* client.todoDocuments.save({
+    const saved = yield* session.draft.submit(
+      ({ saved, submitted }) =>
+        client.todoDocuments
+          .save({
             params: { id: session.documentId },
             payload: {
-              expectedVersion: original.version,
-              todos: submitted.todos,
+              expectedVersion: saved.document.version,
+              todos: submitted.document.todos,
             },
           })
-        }),
+          .pipe(
+            Effect.map((document) => ({
+              ...submitted,
+              document,
+            }))
+          ),
       {
         authoritativeFailure: (error) =>
           error instanceof TodoConflict
-            ? Option.some(error.current)
+            ? Option.some({
+                ...session.draft.data.getSnapshot(),
+                document: error.current,
+              })
             : Option.none(),
       }
+    )
+    return DraftSynchronizationResult.map(
+      saved,
+      (authoritative) => authoritative.document
     )
   })
 )
 
 export const resetTodoDraft = TodoTree.action('Todo.reset', () =>
-  Effect.flatMap(TodoSession, (session) => session.draft.resetAt(['document']))
+  Effect.flatMap(TodoSession, (session) => session.draft.reset)
 )
 
 export const undoTodoChange = TodoTree.action('Todo.undo', () =>

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DraftValidationError } from '@effect-state-tree/draft'
 import { Deferred, Effect, Fiber, Layer, type Scope } from 'effect'
 import { HttpApiTest } from 'effect/unstable/httpapi'
 
@@ -11,7 +12,6 @@ import {
   saveTodoDocument,
   undoTodoChange,
 } from '../src/client/state/actions'
-import { TodoDraftInvalidError } from '../src/client/state/errors'
 import { TodoSession, TodoSessionLive } from '../src/client/state/session'
 import { TodoApi, TodoConflict } from '../src/shared/todo-api'
 import { HttpApiTestServices, TodoDocumentHandlersTest } from './support'
@@ -31,19 +31,18 @@ describe('Todo Effect actions', () => {
         yield* Effect.gen(function* () {
           const session = yield* TodoSession
           yield* loadTodoDocument()
-          const originalCount =
-            session.original.getSnapshot().document.todos.length
+          const originalCount = session.draft.getSaved().document.todos.length
 
           yield* addTodo({ title: 'Local only', priority: 'high' })
 
           expect(session.draft.data.getSnapshot().document.todos).toHaveLength(
             originalCount + 1
           )
-          expect(session.original.getSnapshot().document.todos).toHaveLength(
+          expect(session.draft.getSaved().document.todos).toHaveLength(
             originalCount
           )
           expect(session.history.canUndo()).toBe(true)
-          expect(session.draft.isDirtyAt(['document'])).toBe(true)
+          expect(session.draft.isDirty()).toBe(true)
 
           yield* undoTodoChange()
           expect(session.draft.data.getSnapshot().document.todos).toHaveLength(
@@ -54,14 +53,12 @@ describe('Todo Effect actions', () => {
           const saved = yield* saveTodoDocument()
           expect(saved._tag).toBe('Accepted')
           expect(saved.authoritative.version).toBe(2)
-          expect(session.original.getSnapshot().document).toEqual(
-            saved.authoritative
-          )
+          expect(session.draft.getSaved().document).toEqual(saved.authoritative)
           expect(session.draft.data.getSnapshot().document).toEqual(
             saved.authoritative
           )
           expect(session.history.canUndo()).toBe(false)
-          expect(session.draft.isDirtyAt(['document'])).toBe(false)
+          expect(session.draft.isDirty()).toBe(false)
         }).pipe(Effect.provide(applicationLayer('draft-save', client)))
       }).pipe(
         Effect.provide(TodoDocumentHandlersTest),
@@ -95,12 +92,12 @@ describe('Todo Effect actions', () => {
 
           const conflict = yield* Effect.flip(saveTodoDocument())
           expect(conflict).toBeInstanceOf(TodoConflict)
-          expect(session.draft.isDirtyAt(['document'])).toBe(true)
+          expect(session.draft.isDirty()).toBe(true)
           expect(session.history.canUndo()).toBe(true)
           expect(
             session.draft.data.getSnapshot().document.todos[0]?.title
           ).toBe('My local title')
-          expect(session.original.getSnapshot().document).toEqual(current)
+          expect(session.draft.getSaved().document).toEqual(current)
           expect(session.draft.data.getSnapshot().document.version).toBe(
             loaded.version
           )
@@ -133,14 +130,14 @@ describe('Todo Effect actions', () => {
           expect(
             session.validation
               .issuesBelow(['document'])
-              .some((issue) => issue.code === 'todo.title.non-empty')
+              .some((issue) => issue.path.at(-1) === 'title')
           ).toBe(true)
           const invalid = yield* Effect.flip(saveTodoDocument())
-          expect(invalid).toBeInstanceOf(TodoDraftInvalidError)
+          expect(invalid).toBeInstanceOf(DraftValidationError)
           expect(
             session.draft.data.getSnapshot().document.todos[0]?.title
           ).toBe('')
-          expect(session.draft.isDirtyAt(['document'])).toBe(true)
+          expect(session.draft.isDirty()).toBe(true)
         }).pipe(Effect.provide(applicationLayer('draft-validation', client)))
       }).pipe(
         Effect.provide(TodoDocumentHandlersTest),
@@ -186,13 +183,13 @@ describe('Todo Effect actions', () => {
 
           const saved = yield* Fiber.join(saveFiber)
           expect(saved._tag).toBe('AcceptedWithPendingChanges')
-          expect(session.original.getSnapshot().document.version).toBe(2)
+          expect(session.draft.getSaved().document.version).toBe(2)
           expect(
             session.draft.data.getSnapshot().document.todos[0]?.title
           ).toBe('Edited while saving')
           expect(session.draft.data.getSnapshot().document.version).toBe(1)
           expect(session.history.canUndo()).toBe(true)
-          expect(session.draft.isDirtyAt(['document'])).toBe(true)
+          expect(session.draft.isDirty()).toBe(true)
         }).pipe(
           Effect.provide(applicationLayer('draft-in-flight', delayedClient))
         )

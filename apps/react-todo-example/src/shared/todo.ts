@@ -1,20 +1,11 @@
 import { entity } from '@effect-state-tree/core'
-import { diagnosticCheck } from '@effect-state-tree/validation'
 import { Schema } from 'effect'
 
 export const TodoTitle = Schema.String.check(
-  diagnosticCheck(
-    'todo.title.non-empty',
-    (title: string) => title.trim().length > 0,
-    { expected: 'a non-empty todo title' }
-  )
+  Schema.makeFilter((title: string) => title.trim().length > 0)
 )
 
-export const TodoNotes = Schema.String.check(
-  diagnosticCheck('todo.notes.length', (notes: string) => notes.length <= 240, {
-    expected: 'notes no longer than 240 characters',
-  })
-)
+export const TodoNotes = Schema.String.check(Schema.isMaxLength(240))
 
 export const TodoPriority = Schema.Literals(['low', 'normal', 'high'])
 export type TodoPriority = typeof TodoPriority.Type

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   applyTreePatches,
+  captureSnapshot,
   collaborativeText,
   entity,
   makeTreeSpec,
@@ -25,19 +26,25 @@ const ProducerSchema = Schema.Struct({
 
 const producerSpec = makeTreeSpec(ProducerSchema)
 
-const makeInitial = (): TreeValue<typeof ProducerSchema> => ({
-  items: [
-    { id: 'a', value: 1 },
-    { id: 'b', value: 2 },
-    { id: 'c', value: 3 },
-    { id: 'd', value: 4 },
-  ],
-  text: 'abcd',
-  stable: {
-    name: 'unchanged',
-    nested: { enabled: true },
-  },
-})
+const makeInitial = (): TreeValue<typeof ProducerSchema> => {
+  const captured = captureSnapshot({
+    items: [
+      { id: 'a', value: 1 },
+      { id: 'b', value: 2 },
+      { id: 'c', value: 3 },
+      { id: 'd', value: 4 },
+    ],
+    text: 'abcd',
+    stable: {
+      name: 'unchanged',
+      nested: { enabled: true },
+    },
+  })
+  if (Result.isFailure(captured)) {
+    throw new Error('Expected the producer fixture to be capturable.')
+  }
+  return captured.success
+}
 
 describe('produceTreeChange', () => {
   it('preserves untouched references and round-trips forward and inverse patches', () => {

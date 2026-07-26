@@ -52,6 +52,7 @@ export interface UnsupportedTreeNodeError {
     | 'atomic-descent'
     | 'ambiguous-union-descent'
     | 'structural-transformation-descent'
+    | 'mutable-container'
     | 'mutable-atomic'
 }
 
